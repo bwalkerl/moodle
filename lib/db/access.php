@@ -147,7 +147,17 @@ $capabilities = array(
             'manager' => CAP_ALLOW
         )
     ),
+    'moodle/site:urlpreview' => [
 
+        'riskbitmask' => RISK_SPAM,
+
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_SYSTEM,
+        'archetypes' => [
+            'guest' => CAP_ALLOW,
+            'student' => CAP_ALLOW,
+        ],
+    ],
     'moodle/backup:backupcourse' => array(
 
         'riskbitmask' => RISK_SPAM | RISK_PERSONAL | RISK_XSS,

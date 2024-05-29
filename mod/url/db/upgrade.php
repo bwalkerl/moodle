@@ -43,6 +43,8 @@
  */
 
 function xmldb_url_upgrade($oldversion) {
+    global $DB;
+    $dbman = $DB->get_manager();
     // Automatically generated Moodle v4.1.0 release upgrade line.
     // Put any upgrade step following this.
 
@@ -57,11 +59,28 @@ function xmldb_url_upgrade($oldversion) {
         if (!get_config('url', 'allowvariables')) {
             set_config('allowvariables', true, 'url');
         }
-
         // URL savepoint reached.
         upgrade_mod_savepoint(true, 2023100901, 'url');
     }
-
+    if ($oldversion < 2024052500) {
+        // Define field urlpreview to be added to url.
+        $table = new xmldb_table('url');
+        $field = new xmldb_field(
+            'urlpreview',
+            XMLDB_TYPE_INTEGER,
+            '4',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            '0'
+        );
+        // Conditionally launch add field urlpreview.
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        // URL savepoint reached.
+        upgrade_mod_savepoint(true, 2024052500, 'url');
+    }
     // Automatically generated Moodle v4.4.0 release upgrade line.
     // Put any upgrade step following this.
 

@@ -27,6 +27,7 @@ defined('MOODLE_INTERNAL') || die;
 
 if ($ADMIN->fulltree) {
     require_once("$CFG->libdir/resourcelib.php");
+    require_once("$CFG->dirroot/lib/classes/url/unfurler.php");
 
     $displayoptions = resourcelib_get_displayoptions(array(RESOURCELIB_DISPLAY_AUTO,
                                                            RESOURCELIB_DISPLAY_EMBED,
@@ -41,6 +42,18 @@ if ($ADMIN->fulltree) {
                                    RESOURCELIB_DISPLAY_POPUP,
                                   );
 
+    $urlpreviewoptions = unfurl::resourcelib_get_urlpreviewdisplayoptions([
+        URLPREVIEW_DISPLAY_FULL,
+        URLPREVIEW_DISPLAY_SLIM,
+        URLPREVIEW_DISPLAY_NONE,
+    ]);
+
+    $defaulturlpreviewoptions = [
+        URLPREVIEW_DISPLAY_FULL,
+        URLPREVIEW_DISPLAY_SLIM,
+        URLPREVIEW_DISPLAY_NONE,
+    ];
+
     //--- general settings -----------------------------------------------------------------------------------
     $settings->add(new admin_setting_configtext('url/framesize',
         get_string('framesize', 'url'), get_string('configframesize', 'url'), 130, PARAM_INT));
@@ -54,6 +67,9 @@ if ($ADMIN->fulltree) {
     $settings->add(new admin_setting_configmultiselect('url/displayoptions',
         get_string('displayoptions', 'url'), get_string('configdisplayoptions', 'url'),
         $defaultdisplayoptions, $displayoptions));
+    $settings->add(new admin_setting_configmultiselect('url/urlpreviewoptions',
+        get_string('urlpreviewoptions', 'url'), get_string('configurlpreviewoptions', 'url'),
+        $defaulturlpreviewoptions, $urlpreviewoptions));
 
     //--- modedit defaults -----------------------------------------------------------------------------------
     $settings->add(new admin_setting_heading('urlmodeditdefaults', get_string('modeditdefaults', 'admin'), get_string('condifmodeditdefaults', 'admin')));

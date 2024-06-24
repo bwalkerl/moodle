@@ -27,14 +27,14 @@ defined('MOODLE_INTERNAL') || die();
 
 $string['content'] = 'Content';
 $string['deleteunusedpreviews'] = 'Delete unused previews';
-$string['linkpreview'] = 'Link Preview';
+$string['linkpreview'] = 'Full preview';
 $string['loading'] = 'Url preview generating \'{$a}\'';
-$string['menuname'] = 'URL Metadata Preview';
-$string['pluginname'] = 'urlpreview';
+$string['menuname'] = 'URL metadata preview';
+$string['pluginname'] = 'URL preview';
 $string['preview'] = 'Preview';
 $string['privacy:metadata'] = 'The urlpreview tool only displays previews for input urls and does not store user data.';
 $string['property'] = 'Property';
 $string['refresholdpreviews'] = 'Refresh old, frequently used previews';
-$string['slimpreview'] = 'Slim Preview';
+$string['slimpreview'] = 'Slim preview';
 $string['url'] = 'URL';
 $string['urlpreview:usetool'] = 'Use the urlpreview tool';

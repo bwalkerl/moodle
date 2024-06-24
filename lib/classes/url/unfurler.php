@@ -23,107 +23,132 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+namespace core\url;
+
 defined('MOODLE_INTERNAL') || die();
 
-/** Display full frame */
-define('URLPREVIEW_DISPLAY_FULL', 0);
-/** Display slim frame */
-define('URLPREVIEW_DISPLAY_SLIM', 1);
 /** Display none */
-define('URLPREVIEW_DISPLAY_NONE', 2);
+define('URLPREVIEW_DISPLAY_NONE', 0);
+/** Display full frame */
+define('URLPREVIEW_DISPLAY_FULL', 1);
+/** Display slim frame */
+define('URLPREVIEW_DISPLAY_SLIM', 2);
+/** Display tool frame */
+define('URLPREVIEW_DISPLAY_TOOL', 9);
 
-require_once($CFG->libdir.'/filelib.php');
+require_once($CFG->libdir . '/filelib.php');
+require_once($CFG->libdir . '/resourcelib.php');
 
 /**
- * Class unfurl
+ * Class unfurler
  * This class is responsible for unfurling URLs to extract and format metadata.
  */
-class unfurl {
+class unfurler {
     /**
-     * The title of the URL.
+     * The URL preview.
+     * @var urlpreview
+     */
+    public $preview = null;
+    /**
+     * The provided URL.
      * @var string
      */
-    public $title = '';
-    /**
-     * The sitename of the URL.
-     * @var string
-     */
-    public $sitename = '';
-    /**
-     * The image of the URL.
-     * @var string
-     */
-    public $image = '';
-    /**
-     * The description of the URL.
-     * @var string
-     */
-    public $description = '';
+    protected $url = '';
     /**
      * The canonical URL.
      * @var string
      */
     public $canonicalurl = '';
     /**
-     * The type of the URL.
-     * @var string
-     */
-    public $type = '';
-    /**
      * Indicates whether Noog metadata is enabled.
      * @var bool
      */
-    public $noogmetadata = true;
+    protected $noogmetadata = true;
     /**
      * The response data.
      * @var string
      */
-    private $response;
+    protected $response;
 
     /**
      * Unfurler contructor.
      * @param string $url
      */
-    public function __construct($url) {
+    public function __construct(string $url) {
+        GLOBAL $DB;
 
-        // Initialize cURL session.
-        $curl = new curl();
+        // TODO: Some baisc url checking / formatting to stop duplicates with /.
+        $this->url = $url;
+
+        $records = urlpreview::get_records_select($DB->sql_compare_text('url') . " = ?", [$this->url]);
+        $id = array_key_first($records);
+
+        if (!empty($id)) {
+            $this->preview = $records[$id];
+        } else {
+            if (!$this->load_url()) {
+                return;
+            }
+
+            $this->preview = new urlpreview();
+            $this->extract_html_metadata($this->url, $this->response);
+        }
+
+        $this->save();
+    }
+
+    /**
+     * Loads the URL.
+     *
+     * @return bool success
+     */
+    private function load_url() {
+        // Initialize cURL session and load data.
+        $curl = new \curl();
         $options = [
             'CURLOPT_RETURNTRANSFER' => true,
             'CURLOPT_TIMEOUT' => 5,
         ];
-        $this->response = $curl->get($url, $options);
-
-        $curlresponse = $this->response;
+        $this->response = $curl->get($this->url, $options);
 
         $errorno = $curl->get_errno();
         if ($errorno === CURLE_OPERATION_TIMEOUTED) {
-            echo get_string('urltimeout', 'moodle', $url);
-            return;
+            echo get_string('urltimeout', 'moodle', $this->url);
+            return false;
         }
-        $this->extract_html_metadata($url, $curlresponse);
+        return true;
     }
 
     /**
      * Extract metadata from url.
      * @param string $url The URL from which to extract metadata.
-     * @param string $responseurl The URL to respond to with the extracted metadata.
+     * @param string $response The response to with the extracted metadata.
      */
-    public function extract_html_metadata($url, $responseurl) {
-        $doc = new DOMDocument();
-        @$doc->loadHTML('<?xml encoding="UTF-8">' . $responseurl);
+    public function extract_html_metadata(string $url, string $response): void {
+        $doc = new \DOMDocument();
+        @$doc->loadHTML('<?xml encoding="UTF-8">' . $response);
         $metataglist = $doc->getElementsByTagName('meta');
         // Default html title.
         $titleelement = $doc->getElementsByTagName('title')->item(0);
         $h1element = $doc->getElementsByTagName('h1')->item(0);
         $h2element = $doc->getElementsByTagName('h2')->item(0);
 
+        $this->preview->set('url', $url);
+        $title = '';
         if ($titleelement) {
-            $this->title = $titleelement->textContent;
+            $title = $titleelement->textContent;
         } else if ($h1element) {
-            $this->title = $h1element->textContent;
+            $title = $h1element->textContent;
         } else if ($h2element) {
-            $this->title = $h2element->textContent;
+            $title = $h2element->textContent;
+        }
+        $this->preview->set('title', $title);
+
+        // Check mimetype.
+        $mimetype = resourcelib_guess_url_mimetype($url);
+        $imagemimetypes = ['image/gif', 'image/jpeg', 'image/png', 'image/svg+xml'];
+        if (in_array($mimetype, $imagemimetypes)) {
+            $this->preview->set('imageurl', $url);
         }
 
         // Iterate through meta tags.
@@ -153,23 +178,23 @@ class unfurl {
                 $sanitizedcontent = clean_param($contentattribute, PARAM_TEXT);
                 switch ($propertyattribute) {
                     case 'og:title':
-                        $this->title = $sanitizedcontent;
+                        $this->preview->set('title', $sanitizedcontent);
                         break;
                     case 'og:site_name':
-                        $this->sitename = $sanitizedcontent;
+                        $this->preview->set('sitename', $sanitizedcontent);
                         break;
                     case 'og:image':
                         $imageurlparts = parse_url($contentattribute);
                         if (empty($imageurlparts['host']) && !empty($imageurlparts['path'])) {
                             $urlparts = parse_url($url);
-                            $this->image = $urlparts['scheme'].'://'.$urlparts['host'].$imageurlparts['path'];
+                            $imageurl = $urlparts['scheme'] . '://' . $urlparts['host'] . $imageurlparts['path'];
                         } else {
-                            $sanitizedcontent = clean_param($contentattribute, PARAM_URL);
-                            $this->image = $sanitizedcontent;
+                            $imageurl = clean_param($contentattribute, PARAM_URL);
                         }
+                        $this->preview->set('imageurl', $imageurl);
                         break;
                     case 'og:description':
-                        $this->description = $sanitizedcontent;
+                        $this->preview->set('description', $sanitizedcontent);
                         break;
                     case 'og:url':
                         $sanitizedcontent = clean_param($contentattribute, PARAM_URL);
@@ -177,7 +202,7 @@ class unfurl {
                         break;
                     case 'og:type':
                         $sanitizedcontent = clean_param($contentattribute, PARAM_ALPHANUMEXT);
-                        $this->type = $sanitizedcontent;
+                        $this->preview->set('type', $sanitizedcontent);
                     default:
                         break;
                 }
@@ -186,52 +211,101 @@ class unfurl {
     }
 
     /**
-     * Render metadata.
+     * Refreshes the metadata stored in the database.
+     *
+     * @return void
      */
-    public function render_unfurl_metadata() {
-        global $OUTPUT;
-        // Get the properties of this object as an array.
-        $unfurldata = get_object_vars($this);
-
-        // Use the render_from_template method to render Mustache template.
-        return $OUTPUT->render_from_template('tool_urlpreview/metadata', $unfurldata);
+    public function refresh(): void {
+        if (!$this->load_url()) {
+            return;
+        }
+        $this->extract_html_metadata($this->url, $this->response);
+        $this->save(true);
     }
 
     /**
-     * Formats url preview data by passing it to the render_from_template function.
-     * @param array $data retrieved data from urlpreview table to be rendered.
+     * Saves unfurled data to the database.
+     *
+     * @param bool $refresh
      */
-    public static function format_preview_data($data) {
-        global $OUTPUT;
+    private function save($refresh = false): void {
+        // Save the linted data to the database using the persistent class.
+        $id = $this->preview->get('id');
+        if (!$id) {
+            $this->preview->set('lastpreviewed', time());
+            $this->preview->create();
+            return;
+        }
 
-        $templatedata = [
-            'noogmetadata' => empty($data->title) && empty($data->imageurl) && empty($data->sitename)
-                && empty($data->description) && empty($data->type),
-            'canonicalurl' => $data->url,
-            'title'        => $data->title,
-            'image'        => $data->imageurl,
-            'sitename'     => $data->sitename,
-            'description'  => $data->description,
-            'type'         => $data->type,
+        $currenttime = time();
+        $lastpreviewed = $this->preview->get('lastpreviewed');
+        if ($refresh || ($currenttime - $lastpreviewed) > HOURSECS) {
+            $this->preview->set('lastpreviewed', $currenttime);
+            $this->preview->update();
+        }
+    }
+
+    /**
+     * Returns metadata used to render a preview.
+     *
+     * @return array
+     */
+    public function get_metadata(): array {
+        return [
+            'title' => $this->preview->get('title'),
+            'sitename' => $this->preview->get('sitename'),
+            'image' => $this->preview->get('imageurl'),
+            'description' => $this->preview->get('description'),
+            'canonicalurl' => $this->canonicalurl ?: $this->preview->get('url'),
         ];
-        return $OUTPUT->render_from_template('tool_urlpreview/metadata', $templatedata);
     }
 
     /**
-    * Returns list of available urlpreview options.
-    * @param array $enabled List of options enabled in module configuration.
-    * @param int|null $current Current display option for existing instances.
-    * @return array of key=>name pairs
-    */
-    public static function resourcelib_get_urlpreviewdisplayoptions(array $enabled, $current = null) {
-        if ($current !== null && is_numeric($current)) {
+     * Renders an unfurled preview.
+     *
+     * @param int $display preview type
+     * @param array $metadata
+     * @return bool|string
+     */
+    public function render_preview(int $display, array $metadata = []) {
+        GLOBAL $OUTPUT;
+
+        switch ($display) {
+            case URLPREVIEW_DISPLAY_FULL:
+                $template = 'core/url_preview_card';
+                break;
+            case URLPREVIEW_DISPLAY_SLIM:
+                $template = 'core/url_preview_slim';
+                break;
+            case URLPREVIEW_DISPLAY_TOOL:
+                $template = 'tool_urlpreview/metadata';
+                break;
+            default:
+                return '';
+        }
+
+        if (empty($metadata)) {
+            $metadata = $this->get_metadata();
+        }
+
+        return $OUTPUT->render_from_template($template, $metadata);
+    }
+
+    /**
+     * Returns list of available urlpreview options.
+     * @param array $enabled List of options enabled in module configuration.
+     * @param int|null $current Current display option for existing instances.
+     * @return array of key=>name pairs
+     */
+    public static function urlpreview_get_displayoptions(array $enabled, ?int $current = null): array {
+        if (isset($current) && is_numeric($current)) {
             $enabled[] = $current;
         }
 
         $options = [
+            URLPREVIEW_DISPLAY_NONE => get_string('resourcedisplaynone'),
             URLPREVIEW_DISPLAY_FULL => get_string('resourcedisplayfull'),
             URLPREVIEW_DISPLAY_SLIM => get_string('resourcedisplayslim'),
-            URLPREVIEW_DISPLAY_NONE => get_string('resourcedisplaynone')
         ];
 
         $result = [];
@@ -240,6 +314,12 @@ class unfurl {
                 $result[$key] = $value;
             }
         }
+
+        if (empty($result)) {
+            // There should be always something in case admin misconfigures module.
+            $result[URLPREVIEW_DISPLAY_NONE] = $options[URLPREVIEW_DISPLAY_NONE];
+        }
+
         return $result;
     }
 }

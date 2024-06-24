@@ -17,7 +17,8 @@
 namespace core\task;
 
 use core\task\scheduled_task;
-use core\urlpreview;
+use core\url\unfurler;
+use core\url\urlpreview;
 
 /**
  * This task refreshes old urlpreviews in the DB by updating the stored metadata.
@@ -34,34 +35,26 @@ class refresh_old_previews extends scheduled_task {
     /**
      * Get the name.
      */
-    public function get_name() {
-        return get_string('refresholdpreviews', 'core_urlpreview');
+    public function get_name(): string {
+        return get_string('refresholdpreviews', 'tool_urlpreview');
     }
 
     /**
      * The function executed whenever the task is called.
      */
-    public function execute() {
+    public function execute(): void {
         global $DB;
         $twoweeksago = time() - (2 * WEEKSECS);
 
         // This selects records older than 2 weeks that have been previewed in the last 2 weeks.
-        $sql = "SELECT * FROM {urlpreview} WHERE timecreated < ? AND lastpreviewed >= ?";
-        $records = $DB->get_records_sql($sql, [$twoweeksago, $twoweeksago]);
+        $select = "timecreated < ? AND lastpreviewed >= ?";
+        $records = urlpreview::get_records_select($select, [$twoweeksago, $twoweeksago]);
 
         foreach ($records as $record) {
-            // Fetch fresh metadata for the URL using the `unfurl` class.
-            $unfurler = new \unfurl($record->url);
-
-            // Update the record with fresh metadata.
-            $preview = new \tool_urlpreview\form\urlpreview($record->id);
-            $preview->set('title', $unfurler->title);
-            $preview->set('type', $unfurler->type);
-            $preview->set('imageurl', $unfurler->image);
-            $preview->set('sitename', $unfurler->sitename);
-            $preview->set('description', $unfurler->description);
-            $preview->set('timemodified', time()); // Update the modification time.
-            $preview->update();
+            // Refresh metadata for the URL using the `unfurl` class.
+            $url = $record->get('url');
+            $unfurler = new unfurler($url);
+            $unfurler->refresh();
         }
     }
 }

@@ -27,7 +27,7 @@ defined('MOODLE_INTERNAL') || die;
 
 if ($ADMIN->fulltree) {
     require_once("$CFG->libdir/resourcelib.php");
-    require_once("$CFG->dirroot/lib/classes/url/unfurler.php");
+    require_once($CFG->libdir . '/classes/url/unfurler.php');
 
     $displayoptions = resourcelib_get_displayoptions(array(RESOURCELIB_DISPLAY_AUTO,
                                                            RESOURCELIB_DISPLAY_EMBED,
@@ -42,16 +42,16 @@ if ($ADMIN->fulltree) {
                                    RESOURCELIB_DISPLAY_POPUP,
                                   );
 
-    $urlpreviewoptions = unfurl::resourcelib_get_urlpreviewdisplayoptions([
+    $urlpreviewoptions = \core\url\unfurler::urlpreview_get_displayoptions([
+        URLPREVIEW_DISPLAY_NONE,
         URLPREVIEW_DISPLAY_FULL,
         URLPREVIEW_DISPLAY_SLIM,
-        URLPREVIEW_DISPLAY_NONE,
     ]);
 
     $defaulturlpreviewoptions = [
+        URLPREVIEW_DISPLAY_NONE,
         URLPREVIEW_DISPLAY_FULL,
         URLPREVIEW_DISPLAY_SLIM,
-        URLPREVIEW_DISPLAY_NONE,
     ];
 
     //--- general settings -----------------------------------------------------------------------------------
@@ -78,6 +78,8 @@ if ($ADMIN->fulltree) {
         get_string('printintro', 'url'), get_string('printintroexplain', 'url'), 1));
     $settings->add(new admin_setting_configselect('url/display',
         get_string('displayselect', 'url'), get_string('displayselectexplain', 'url'), RESOURCELIB_DISPLAY_AUTO, $displayoptions));
+    $settings->add(new admin_setting_configselect('url/urlpreview',
+        get_string('urlpreviewselect', 'url'), get_string('urlpreviewselectexplain', 'url'), URLPREVIEW_DISPLAY_NONE, $urlpreviewoptions));
     $settings->add(new admin_setting_configtext('url/popupwidth',
         get_string('popupwidth', 'url'), get_string('popupwidthexplain', 'url'), 620, PARAM_INT, 7));
     $settings->add(new admin_setting_configtext('url/popupheight',

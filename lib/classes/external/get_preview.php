@@ -16,15 +16,11 @@
 
 
 namespace core\external;
-defined('MOODLE_INTERNAL') || die();
 
 use core_external\external_function_parameters;
 use core_external\external_api;
 use core_external\external_value;
-use core\form\urlpreview;
-require_once($CFG->dirroot . '/lib/classes/url/urlpreview.php');
-require_once($CFG->libdir . '/classes/url/unfurler.php');
-require_once($CFG->dirroot . '/lib/externallib.php');
+use core\url\unfurler;
 
 /**
  * Implementation of web service core_get_preview
@@ -49,8 +45,10 @@ class get_preview extends external_api {
      * Implementation of web service core_url_get_preview
      *
      * @param string $url
+     * @param int|null $display
+     * @return bool|string
      */
-    public static function execute($url) {
+    public static function execute(string $url, int $display = null) {
         global $DB;
         // Parameter validation.
         ['url' => $url] = self::validate_parameters(
@@ -62,38 +60,8 @@ class get_preview extends external_api {
         $context = \context_system::instance();
         self::validate_context($context);
 
-        // Check if the linted data for this URL is already in the database.
-        $sql = "SELECT * FROM {urlpreview} WHERE " . $DB->sql_compare_text('url') . " = ?";
-        $linteddata = $DB->get_record_sql($sql, [$url]);
-
-        if (!$linteddata) {
-            // If not in the database, lint the URL.
-            $unfurler = new \unfurl($url);
-            $renderedoutput = $unfurler->render_unfurl_metadata();
-
-            // Save the linted data to the database using the persistent class.
-            $record = new urlpreview();
-            $record->set('url', $url);
-            $record->set('title', $unfurler->title);
-            $record->set('type', $unfurler->type);
-            $record->set('imageurl', $unfurler->image);
-            $record->set('sitename', $unfurler->sitename);
-            $record->set('description', $unfurler->description);
-            $record->set('timecreated', time());
-            $record->set('timemodified', time());
-            $record->set('lastpreviewed', time());
-            $record->create();
-        } else {
-            // Update the 'lastpreviewed' timestamp only if it's been more than an hour.
-            $currenttime = time();
-            if (($currenttime - $linteddata->lastpreviewed) > (1 * HOURSECS)) {
-                $linteddata->lastpreviewed = $currenttime;
-                $DB->update_record('urlpreview', $linteddata);
-            }
-            $renderedoutput = \unfurl::format_preview_data($linteddata);
-        }
-
-        return $renderedoutput;
+        $unfurler = new unfurler($url);
+        return $unfurler->render_preview($display ?? URLPREVIEW_DISPLAY_TOOL);
     }
 
     /**

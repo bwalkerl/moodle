@@ -30,30 +30,28 @@
 
 <div style="padding: 0px;">
     <div class="border shadow-sm rounded">
-        <div class="row no-gutters">
+        <div class="row no-gutters position-relative">
             <div class="col-md-2">
                 {{#image}}
-                    <img 
-                        class="rounded-left" 
-                        style="
-                            border-radius: 0; 
-                            width: 7em; 
-                            height: 4.5em;
-                            object-fit: cover;" src="{{{.}}}" alt="">
+                    <img
+                        class="rounded-left"
+                        src="{{{.}}}"
+                        alt="Preview image"
+                        style="border-radius: 0; width: 7em; height: 4.5em; object-fit: cover;">
                 {{/image}}
             </div>
-            <div class="col-md-10">
+            <div class="col-md-10 position-static">
                 <div class="py-2 px-0">
                     {{#title}}
                     <div class="text-truncate my-0 pr-2">
                         <b class="text-truncate my-0"><a href="{{{canonicalurl}}}" target="_blank" class="card-title stretched-link">{{.}}</a></b>
                     </div>
                     {{/title}}
-                    {{#description}}
-                        <div class="text-truncate my-0 pr-2">
+                    <div class="text-truncate my-0 pr-2">
+                        {{#description}}
                             {{#sitename}}<small class="card-text text-muted text-uppercase">{{.}}｜</small>{{/sitename}}{{.}}
-                        </div>
-                    {{/description}}
+                        {{/description}}
+                    </div>
                 </div>
             </div>
         </div>

@@ -98,7 +98,6 @@ function url_add_instance($data, $mform) {
     global $CFG, $DB;
 
     require_once($CFG->dirroot.'/mod/url/locallib.php');
-    $config = get_config('url');
     $parameters = array();
     for ($i=0; $i < 100; $i++) {
         $parameter = "parameter_$i";
@@ -212,7 +211,6 @@ function url_get_coursemodule_info($coursemodule) {
     global $CFG, $DB, $OUTPUT;
 
     require_once("$CFG->dirroot/mod/url/locallib.php");
-    require_once("$CFG->dirroot/lib/classes/url/unfurler.php");
 
     if (!$url = $DB->get_record('url', array('id'=>$coursemodule->instance),
             'id, name, display, displayoptions, externalurl, parameters, intro, introformat, urlpreview')) {
@@ -247,19 +245,14 @@ function url_get_coursemodule_info($coursemodule) {
     }
 
     // Renders the url preview.
-    $unfurler = new unfurl($url->externalurl);
-    $urlpreview = $url->urlpreview;
-    $metadata = [
-        'title' => $unfurler->title ?: format_string($url->name),
-        'sitename' => $unfurler->sitename,
-        'image' => $unfurler->image,
-        'description' => $unfurler->description,
-        'canonicalurl' => $unfurler->canonicalurl ?: $url->externalurl,
-    ];
-    if ($urlpreview == URLPREVIEW_DISPLAY_FULL) {
-        $info->content = $OUTPUT->render_from_template('core/url_preview_card', $metadata);
-    } else if ($urlpreview == URLPREVIEW_DISPLAY_SLIM) {
-        $info->content = $OUTPUT->render_from_template('core/url_preview_slim', $metadata);
+    if (!empty($url->urlpreview)) {
+        $unfurler = new \core\url\unfurler($url->externalurl);
+        $metadata = $unfurler->get_metadata();
+        if (empty($metadata['title'])) {
+            $metadata['title'] = format_string($url->name);
+        }
+
+        $info->content = $unfurler->render_preview($url->urlpreview, $metadata);
     }
 
     $info->customdata['display'] = $display;

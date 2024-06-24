@@ -4842,7 +4842,7 @@
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
       </KEYS>
     </TABLE>
-    <TABLE NAME="urlpreview" COMMENT="cached URL linting information">
+    <TABLE NAME="urlpreview" COMMENT="Stored URL linting information">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="url" TYPE="text" NOTNULL="true" SEQUENCE="false" COMMENT="URL to be linted"/>

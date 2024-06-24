@@ -23,24 +23,16 @@
  */
 
 require_once('../../../config.php');
-use tool_urlpreview\form\urlpreview;
+require_once($CFG->libdir . '/adminlib.php');
 
 $url = optional_param('url', '', PARAM_URL);
 
-$context = context_system::instance();
-$PAGE->set_context($context);
-$PAGE->set_url(new moodle_url('/admin/tool/urlpreview/index.php'));
-$PAGE->set_pagelayout('standard');
-$PAGE->set_title($SITE->fullname);
-$PAGE->set_heading(get_string('menuname', 'tool_urlpreview'));
+admin_externalpage_setup('toolurlpreview');
 
-require_login();
-require_capability('tool/urlpreview:usetool', $context);
-if (isguestuser()) {
-    throw new moodle_exception('noguest');
-}
+require_capability('tool/urlpreview:usetool', context_system::instance());
 
 echo $OUTPUT->header();
+echo $OUTPUT->heading(get_string('pluginname', 'tool_urlpreview'));
 
 $templatedata = [
     'action' => 'index.php',
@@ -49,10 +41,8 @@ $templatedata = [
 
 echo $OUTPUT->render_from_template('tool_urlpreview/form', $templatedata);
 
-if ($url !== '') {
-    $PAGE->requires->js_call_amd('core/get_url_data', 'getPreviewTemplate', [
-        $url,
-    ]);
+if (!empty($url)) {
+    $PAGE->requires->js_call_amd('core/get_url_data', 'getPreviewTemplate', [$url]);
 }
 
 echo $OUTPUT->footer();

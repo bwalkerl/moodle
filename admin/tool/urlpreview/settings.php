@@ -26,7 +26,7 @@ defined('MOODLE_INTERNAL') || die();
 
 if ($hassiteconfig) {
     $ADMIN->add('development',
-    new admin_externalpage('urlpreview',
+    new admin_externalpage('toolurlpreview',
     get_string('menuname', 'tool_urlpreview'),
     new moodle_url('/admin/tool/urlpreview/index.php')));
 }

@@ -90,12 +90,12 @@ $string['rolesinparams'] = 'Role names as URL variables';
 $string['search:activity'] = 'URL';
 $string['serverurl'] = 'Server URL';
 $string['url:addinstance'] = 'Add a new URL resource';
-$string['urlpreviewoptions'] = 'Available URL Preview Options';
-$string['urlpreviewselect'] = 'URL Preview';
+$string['urlpreviewoptions'] = 'Available URL preview options';
+$string['urlpreviewselect'] = 'URL preview';
 $string['urlpreviewselect_help'] = 'This setting determines how the preview is displayed. Options may include:
 
 * Full - The unfurled URL is displayed within a full frame
 * Slim - The unfurled URL is displayed within a slim frame
 * None - The unfurled URL is not displayed';
-$string['urlpreviewselectexplain'] = 'Choose urlpreview type, the default is set as Full';
+$string['urlpreviewselectexplain'] = 'Choose URL preview display type';
 $string['url:view'] = 'View URL';

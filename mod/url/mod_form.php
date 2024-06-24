@@ -27,7 +27,6 @@ defined('MOODLE_INTERNAL') || die;
 
 require_once ($CFG->dirroot.'/course/moodleform_mod.php');
 require_once($CFG->dirroot.'/mod/url/locallib.php');
-require_once("$CFG->dirroot/lib/classes/url/unfurler.php");
 
 class mod_url_mod_form extends moodleform_mod {
     function definition() {
@@ -60,11 +59,11 @@ class mod_url_mod_form extends moodleform_mod {
 
         if ($this->current->instance) {
             $options = resourcelib_get_displayoptions(explode(',', $config->displayoptions), $this->current->display);
-            $previewoptions = unfurl::resourcelib_get_urlpreviewdisplayoptions(explode(',', $config->urlpreviewoptions),
+            $previewoptions = \core\url\unfurler::urlpreview_get_displayoptions(explode(',', $config->urlpreviewoptions),
                 $this->current->urlpreview);
         } else {
             $options = resourcelib_get_displayoptions(explode(',', $config->displayoptions));
-            $previewoptions = unfurl::resourcelib_get_urlpreviewdisplayoptions(explode(',', $config->urlpreviewoptions));
+            $previewoptions = \core\url\unfurler::urlpreview_get_displayoptions(explode(',', $config->urlpreviewoptions));
         }
         if (count($options) == 1) {
             $mform->addElement('hidden', 'display');
@@ -76,17 +75,16 @@ class mod_url_mod_form extends moodleform_mod {
             $mform->setDefault('display', $config->display);
             $mform->addHelpButton('display', 'displayselect', 'url');
         }
-        
         if (count($previewoptions) == 1) {
             $mform->addElement('hidden', 'urlpreview');
             $mform->setType('urlpreview', PARAM_INT);
+            reset($previewoptions);
+            $mform->setDefault('urlpreview', key($previewoptions));
         } else {
             $mform->addElement('select', 'urlpreview', get_string('urlpreviewselect', 'url'), $previewoptions);
+            $mform->setDefault('display', $config->urlpreview);
             $mform->addHelpButton('urlpreview', 'urlpreviewselect', 'url');
         }
-        reset($previewoptions);
-        $mform->setDefault('urlpreview', key($previewoptions));
-        
         if (array_key_exists(RESOURCELIB_DISPLAY_POPUP, $options)) {
             $mform->addElement('text', 'popupwidth', get_string('popupwidth', 'url'), array('size'=>3));
             if (count($options) > 1) {

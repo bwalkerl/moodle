@@ -24,7 +24,7 @@
 namespace core\task;
 
 use core\task\scheduled_task;
-use core\urlpreview;
+use core\url\urlpreview;
 
 /**
  * Simple task to delete unused previews.
@@ -32,17 +32,21 @@ use core\urlpreview;
 class delete_unused_previews extends scheduled_task {
     /**
      * Get the name.
+     * @return string
      */
-    public function get_name() {
-        return get_string('deleteunusedpreviews', 'core_urlpreview');
+    public function get_name(): string {
+        return get_string('deleteunusedpreviews', 'tool_urlpreview');
     }
 
     /**
      * Delete the preview from the DB if it hasn't been used in at least 3 months.
      */
-    public function execute() {
+    public function execute(): void {
         global $DB;
         $threemonthsago = time() - (90 * DAYSECS);
-        $DB->delete_records_select('urlpreview', 'lastpreviewed < ?', [$threemonthsago]);
+        $records = urlpreview::get_records_select('lastpreviewed < ?', [$threemonthsago]);
+        foreach ($records as $record) {
+            $record->delete();
+        }
     }
 }

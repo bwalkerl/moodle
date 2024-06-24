@@ -19,9 +19,8 @@ namespace tool_urlpreview;
 defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
-use core\url\unfurl;
-
-require_once($CFG->libdir . '/classes/url/unfurler.php');
+use core\url\unfurler;
+use core\url\urlpreview;
 
 /**
  * URLPreview HTML Extract unit tests
@@ -32,13 +31,15 @@ require_once($CFG->libdir . '/classes/url/unfurler.php');
  */
 final class htmlextract_test extends \advanced_testcase {
     /**
-     * @var \unfurl The Unfurl instance used for extracting HTML metadata.
+     * @var unfurler The Unfurl instance used for extracting HTML metadata.
      */
     private $unfurler;
 
     protected function setUp(): void {
         parent::setUp();
-        $this->unfurler = new \unfurl('http://example.xyz'); // Pass a URL to the constructor.
+        $this->unfurler = new unfurler('http://example.xyz'); // Pass a URL to the constructor.
+        $this->unfurler->preview = new urlpreview();
+        $this->resetAfterTest();
     }
 
     /**
@@ -63,18 +64,17 @@ final class htmlextract_test extends \advanced_testcase {
         string $expectedcanonicalurl,
         string $expectedtype
     ): void {
-        $responseurl = file_get_contents(__DIR__ . "/fixtures/$file");
-
         // Extract metadata from the HTML file.
-        $this->unfurler->extract_html_metadata('http://example.com', $responseurl); // Pass the URL to the method.
+        $response = file_get_contents(__DIR__ . "/fixtures/$file");
+        $this->unfurler->extract_html_metadata('http://example.com', $response); // Pass the URL to the method.
 
         // Check the extracted metadata.
-        $this->assertEquals($expectedtitle, $this->unfurler->title);
-        $this->assertEquals($expectedsitename, $this->unfurler->sitename);
-        $this->assertEquals($expectedimage, $this->unfurler->image);
-        $this->assertEquals($expecteddescription, $this->unfurler->description);
+        $this->assertEquals($expectedtitle, $this->unfurler->preview->get('title'));
+        $this->assertEquals($expectedsitename, $this->unfurler->preview->get('sitename'));
+        $this->assertEquals($expectedimage, $this->unfurler->preview->get('imageurl'));
+        $this->assertEquals($expecteddescription, $this->unfurler->preview->get('description'));
         $this->assertEquals($expectedcanonicalurl, $this->unfurler->canonicalurl);
-        $this->assertEquals($expectedtype, $this->unfurler->type);
+        $this->assertEquals($expectedtype, $this->unfurler->preview->get('type'));
     }
     /**
      * Provides data for test function
@@ -182,8 +182,7 @@ final class htmlextract_test extends \advanced_testcase {
                 . 'TitleTitle TitleTitle TitleTitle TitleTitle TitleTitle TitleTitle TitleTitle Title',
                 'Name NameName NameName NameName NameName NameName NameName NameName '
                 . 'NameName NameName NameName NameName NameName NameName NameName Name',
-                'http://example.comImage ImageImage ImageImage ImageImage ImageImage ImageImage '
-                . 'ImageImage ImageImage ImageImage ImageImage ImageImage ImageImage ImageImage ImageImage ImageImage',
+                '',
                 'Description DescriptionDescription DescriptionDescription DescriptionDescription '
                 . 'DescriptionDescription DescriptionDescription Description',
                 '',

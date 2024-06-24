@@ -1129,8 +1129,48 @@ function xmldb_main_upgrade($oldversion) {
         upgrade_main_savepoint(true, 2024030500.02);
     }
 
-    if ($oldversion < 2024032200) {
+    if ($oldversion < 2024032600.01) {
 
+        // Changing precision of field attemptsavailable on table task_adhoc to (2).
+        $table = new xmldb_table('task_adhoc');
+        $field = new xmldb_field('attemptsavailable', XMLDB_TYPE_INTEGER, '2', null, null, null, null, 'pid');
+
+        // Launch change of precision for field.
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->change_field_precision($table, $field);
+        }
+
+        // Main savepoint reached.
+        upgrade_main_savepoint(true, 2024032600.01);
+    }
+
+    if ($oldversion < 2024041200.00) {
+        // Define field blocking to be dropped from task_adhoc.
+        $table = new xmldb_table('task_adhoc');
+        $field = new xmldb_field('blocking');
+
+        // Conditionally launch drop field blocking.
+        if ($dbman->field_exists($table, $field)) {
+            $dbman->drop_field($table, $field);
+        }
+
+        // Define field blocking to be dropped from task_scheduled.
+        $table = new xmldb_table('task_scheduled');
+        $field = new xmldb_field('blocking');
+
+        // Conditionally launch drop field blocking.
+        if ($dbman->field_exists($table, $field)) {
+            $dbman->drop_field($table, $field);
+        }
+
+        // Main savepoint reached.
+        upgrade_main_savepoint(true, 2024041200.00);
+    }
+
+    // Automatically generated Moodle v4.4.0 release upgrade line.
+    // Put any upgrade step following this.
+
+    if ($oldversion < 2024061400) {
         // Define table urlpreview to be created.
         $table = new xmldb_table('urlpreview');
 
@@ -1155,7 +1195,7 @@ function xmldb_main_upgrade($oldversion) {
         }
 
         // Urlpreview savepoint reached.
-        upgrade_main_savepoint(true, 2024042500);
+        upgrade_main_savepoint(true, 2024061400);
     }
 
     return true;

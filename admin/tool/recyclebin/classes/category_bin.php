@@ -135,7 +135,11 @@ class category_bin extends base_bin {
 
         // We don't need the forced setting anymore, hence restore previous settings.
         // TODO: Remove this as part of MDL-65228.
-        $CFG->forced_plugin_settings['backup'] = $forcedbackupsettings;
+        if (isset($forcedbackupsettings)) {
+            $CFG->forced_plugin_settings['backup'] = $forcedbackupsettings;
+        } else {
+            unset($CFG->forced_plugin_settings['backup']);
+        }
 
         // Grab the result.
         $result = $controller->get_results();
@@ -293,7 +297,11 @@ class category_bin extends base_bin {
 
         // We don't need the forced setting anymore, hence restore previous settings.
         // TODO: Remove this as part of MDL-65228.
-        $CFG->forced_plugin_settings['restore'] = $forcedrestoresettings;
+        if (isset($forcedrestoresettings)) {
+            $CFG->forced_plugin_settings['restore'] = $forcedrestoresettings;
+        } else {
+            unset($CFG->forced_plugin_settings['restore']);
+        }
 
         // Have finished with the controller, let's destroy it, freeing mem and resources.
         $controller->destroy();

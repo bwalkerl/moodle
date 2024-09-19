@@ -93,7 +93,7 @@ class report_log_renderer extends plugin_renderer_base {
         echo html_writer::empty_tag('input', array('type' => 'hidden', 'name' => 'showcourses',
             'value' => $reportlog->showcourses));
 
-        $selectedcourseid = empty($reportlog->course) ? 0 : $reportlog->course->id;
+        $selectedcourseid = empty($reportlog->course) ? 0 : ($reportlog->sitecoursefilter ?? $reportlog->course->id);
 
         // Add course selector.
         $sitecontext = context_system::instance();

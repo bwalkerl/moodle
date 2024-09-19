@@ -431,6 +431,12 @@ class report_log_table_log extends table_sql {
             $params['courseid'] = $this->filterparams->courseid;
         }
 
+        // Add filters for missing/deleted courses in site context.
+        if (!empty($this->filterparams->sitecoursefilter)) {
+            $joins[] = "courseid = :courseid";
+            $params['courseid'] = $this->filterparams->sitecoursefilter;
+        }
+
         if (!empty($this->filterparams->siteerrors)) {
             $joins[] = "( action='error' OR action='infected' OR action='failed' )";
         }

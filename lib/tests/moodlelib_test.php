@@ -3419,11 +3419,14 @@ EOF;
 
         email_to_user($user1, $user2, $subject, $messagetext);
         $this->assertDebuggingCalled('Unit tests must not send real emails! Use $this->redirectEmails()');
+        $this->assertEquals(1, get_user_preferences('email_send_count', null, $user1));
 
         $sink = $this->redirectEmails();
         email_to_user($user1, $user2, $subject, $messagetext);
         email_to_user($user2, $user1, $subject2, $messagetext2);
         $this->assertSame(2, $sink->count());
+        $this->assertEquals(2, get_user_preferences('email_send_count', null, $user1));
+        $this->assertEquals(1, get_user_preferences('email_send_count', null, $user2));
         $result = $sink->get_messages();
         $this->assertCount(2, $result);
         $sink->close();
@@ -3480,6 +3483,20 @@ EOF;
         $this->assertStringContainsString('error.txt', $result[0]->body);
         $this->assertStringContainsString('Error in attachment.  User attempted to attach a filename with a unsafe name.', $result[0]->body);
         $sink->close();
+
+        // Try sending an email to a user over the bounce threshold.
+        $CFG->handlebounces = true;
+        set_user_preference('email_send_count', 10, $user1);
+        set_user_preference('email_bounce_count', 10, $user1);
+        $this->assertTrue(over_bounce_threshold($user1));
+
+        $sink = $this->redirectEmails();
+        email_to_user($user1, $user2, $subject, $messagetext);
+        $this->assertDebuggingCalled("email_to_user: User $user1->id (" . fullname($user1) . ") is over bounce threshold! " .
+            "Not sending.");
+        $result = $sink->get_messages();
+        $this->assertEmpty($result);
+        $sink->close();
     }
 
     /**
@@ -3515,6 +3532,8 @@ EOF;
     public function test_email_to_user_attachment(?string $filedir): void {
         global $CFG;
 
+        $this->resetAfterTest();
+
         // If $filedir is null, then write our test file to $CFG->dataroot.
         $filepath = ($filedir ?: $CFG->dataroot) . '/hello.txt';
         file_put_contents($filepath, 'Hello');
@@ -3548,6 +3567,8 @@ EOF;
      * Test sending an attachment that doesn't exist to email_to_user
      */
     public function test_email_to_user_attachment_missing(): void {
+        $this->resetAfterTest();
+
         $user = \core_user::get_support_user();
         $message = 'Test attachment path';
 
@@ -3567,6 +3588,120 @@ EOF;
         $messagebody = reset($messages)->body;
         $this->assertStringNotContainsString('Content-Type: text/plain; name="' . $filename . '"', $messagebody);
         $this->assertStringNotContainsString('Content-Disposition: attachment; filename=' . $filename, $messagebody);
+    }
+
+    /**
+     * Test case for checking send and bounce counts.
+     * @covers ::set_send_count()
+     * @covers ::set_bounce_count()
+     */
+    public function test_email_bounce_count(): void {
+        global $CFG;
+
+        $this->resetAfterTest();
+
+        $user = $this->getDataGenerator()->create_user();
+
+        // Default state.
+        $this->assertNull(get_user_preferences('email_send_count', null, $user));
+        $this->assertNull(get_user_preferences('email_bounce_count', null, $user));
+
+        // Increment counts.
+        set_send_count($user);
+        set_bounce_count($user);
+        $this->assertEquals(1, get_user_preferences('email_send_count', null, $user));
+        $this->assertEquals(1, get_user_preferences('email_bounce_count', null, $user));
+
+        // Reset counts.
+        set_send_count($user, true);
+        set_bounce_count($user, true);
+        $this->assertNull(get_user_preferences('email_send_count', null, $user));
+        $this->assertNull(get_user_preferences('email_bounce_count', null, $user));
+    }
+
+    /**
+     * Data provider for {@see test_email_bounce_threshold}
+     *
+     * @return array
+     */
+    public static function email_bounce_threshold_provider(): array {
+        // To be tested with minbounces of 2 and bounceratio of 0.5 for simplicty.
+        return [
+            "Under minbounces and under ratio" => [
+                "enabled" => true,
+                "send" => 1,
+                "bounce" => 0,
+                "expected" => false,
+            ],
+            "Under minbounces and over ratio" => [
+                "enabled" => true,
+                "send" => 1,
+                "bounce" => 1,
+                "expected" => false,
+            ],
+            "Equal minbounces and equal ratio" => [
+                "enabled" => true,
+                "send" => 4,
+                "bounce" => 2,
+                "expected" => true,
+            ],
+            "Over minbounces and under ratio" => [
+                "enabled" => true,
+                "send" => 7,
+                "bounce" => 3,
+                "expected" => false,
+            ],
+            "Over minbounces and over ratio" => [
+                "enabled" => true,
+                "send" => 5,
+                "bounce" => 3,
+                "expected" => true,
+            ],
+            "Handlebounces not set" => [
+                "enabled" => false,
+                "send" => 5,
+                "bounce" => 3,
+                "expected" => false,
+            ],
+            "Reset send count without bounces" => [
+                "enabled" => true,
+                "send" => 0,
+                "bounce" => 3,
+                "expected" => true,
+            ],
+        ];
+    }
+
+    /**
+     * Tests the email bounce thresholds
+     *
+     * @dataProvider email_bounce_threshold_provider
+     * @param bool $enabled Handle bounces set
+     * @param int $send send count
+     * @param int $bounce bounce conut
+     * @param bool $expected Expected result
+     * @covers ::over_bounce_threshold()
+     */
+    public function test_email_bounce_threshold(bool $enabled, int $send, int $bounce, bool $expected): void {
+        global $CFG;
+
+        $this->resetAfterTest();
+
+        $CFG->handlebounces = $enabled;
+        $CFG->minbounces = 2;
+        $CFG->bounceratio = 0.5;
+
+        $user = $this->getDataGenerator()->create_user();
+        if (!empty($send)) {
+            set_user_preference('email_send_count', $send, $user);
+        }
+        if (!empty($bounce)) {
+            set_user_preference('email_bounce_count', $bounce, $user);
+        }
+
+        $this->assertSame($expected, over_bounce_threshold($user));
+        // Ensure users over the threshold are forced to change emails upon login.
+        $this->assertSame($expected, user_not_fully_set_up($user));
     }
 
     /**

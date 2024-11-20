@@ -3033,21 +3033,15 @@ function over_bounce_threshold($user) {
     }
 
     // Set sensible defaults.
-    if (empty($CFG->minbounces)) {
+    if (!isset($CFG->minbounces)) {
         $CFG->minbounces = 10;
     }
-    if (empty($CFG->bounceratio)) {
+    if (!isset($CFG->bounceratio)) {
         $CFG->bounceratio = .20;
     }
-    $bouncecount = 0;
-    $sendcount = 0;
-    if ($bounce = $DB->get_record('user_preferences', array ('userid' => $user->id, 'name' => 'email_bounce_count'))) {
-        $bouncecount = $bounce->value;
-    }
-    if ($send = $DB->get_record('user_preferences', array('userid' => $user->id, 'name' => 'email_send_count'))) {
-        $sendcount = $send->value;
-    }
-    return ($bouncecount >= $CFG->minbounces && $bouncecount/$sendcount >= $CFG->bounceratio);
+    $bouncecount = get_user_preferences('email_bounce_count', 0, $user);
+    $sendcount = get_user_preferences('email_send_count', 0, $user);
+    return ($bouncecount >= $CFG->minbounces && $bouncecount / max($sendcount, 1) >= $CFG->bounceratio);
 }
 
 /**
@@ -3058,24 +3052,18 @@ function over_bounce_threshold($user) {
  * @return void
  */
 function set_send_count($user, $reset=false) {
-    global $DB;
-
     if (empty($user->id)) {
         // No real (DB) user, nothing to do here.
         return;
     }
 
-    if ($pref = $DB->get_record('user_preferences', array('userid' => $user->id, 'name' => 'email_send_count'))) {
-        $pref->value = (!empty($reset)) ? 0 : $pref->value+1;
-        $DB->update_record('user_preferences', $pref);
-    } else if (!empty($reset)) {
-        // If it's not there and we're resetting, don't bother. Make a new one.
-        $pref = new stdClass();
-        $pref->name   = 'email_send_count';
-        $pref->value  = 1;
-        $pref->userid = $user->id;
-        $DB->insert_record('user_preferences', $pref, false);
+    if ($reset) {
+        unset_user_preference('email_send_count', $user);
+        return;
     }
+
+    $current = get_user_preferences('email_send_count', 0, $user);
+    set_user_preference('email_send_count', $current + 1, $user);
 }
 
 /**
@@ -3085,19 +3073,13 @@ function set_send_count($user, $reset=false) {
  * @param bool $reset will reset the count to 0
  */
 function set_bounce_count($user, $reset=false) {
-    global $DB;
-
-    if ($pref = $DB->get_record('user_preferences', array('userid' => $user->id, 'name' => 'email_bounce_count'))) {
-        $pref->value = (!empty($reset)) ? 0 : $pref->value+1;
-        $DB->update_record('user_preferences', $pref);
-    } else if (!empty($reset)) {
-        // If it's not there and we're resetting, don't bother. Make a new one.
-        $pref = new stdClass();
-        $pref->name   = 'email_bounce_count';
-        $pref->value  = 1;
-        $pref->userid = $user->id;
-        $DB->insert_record('user_preferences', $pref, false);
+    if ($reset) {
+        unset_user_preference('email_bounce_count', $user);
+        return;
     }
+
+    $current = get_user_preferences('email_bounce_count', 0, $user);
+    set_user_preference('email_bounce_count', $current + 1, $user);
 }
 
 /**

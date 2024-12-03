@@ -42,20 +42,25 @@ class testoutgoingmailconf_form extends \moodleform {
     public function definition() {
         $mform = $this->_form;
 
-        // Recipient.
-        $options = ['maxlength' => '100', 'size' => '25', 'autocomplete' => 'email'];
+        // Recipient. Allow testing of invalid emails.
+        $options = ['maxlength' => '100', 'size' => '40', 'autocomplete' => 'email'];
         $mform->addElement('text', 'recipient', get_string('testoutgoingmailconf_toemail', 'admin'), $options);
-        $mform->setType('recipient', PARAM_EMAIL);
+        $mform->setType('recipient', PARAM_TEXT);
         $mform->addRule('recipient', get_string('required'), 'required');
 
+        // Detect email user.
+        $mform->addElement('checkbox', 'detectuser', get_string('testoutgoingmailconf_toemailuser', 'admin'));
+        $mform->setDefault('detectuser', 1);
+        $mform->addHelpButton('detectuser', 'testoutgoingmailconf_toemailuser', 'admin');
+
         // From user.
-        $options = ['maxlength' => '100', 'size' => '25'];
+        $options = ['maxlength' => '100', 'size' => '40'];
         $mform->addElement('text', 'from', get_string('testoutgoingmailconf_fromemail', 'admin'), $options);
         $mform->setType('from', PARAM_TEXT);
         $mform->addHelpButton('from', 'testoutgoingmailconf_fromemail', 'admin');
 
         // Additional subject text.
-        $options = ['size' => '25'];
+        $options = ['size' => '40'];
         $mform->addElement('text', 'additionalsubject', get_string('testoutgoingmailconf_subjectadditional', 'admin'), $options);
         $mform->setType('additionalsubject', PARAM_TEXT);
 

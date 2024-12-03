@@ -48,9 +48,11 @@ if (!empty($CFG->noemailever)) {
 
 $data = $form->get_data();
 if ($data) {
-    $emailuser = new stdClass();
-    $emailuser->email = $data->recipient;
-    $emailuser->id = -99;
+    if (empty($data->detectuser) || !$emailuser = \core_user::get_user_by_email($data->recipient)) {
+        $emailuser = new stdClass();
+        $emailuser->email = $data->recipient;
+        $emailuser->id = -99;
+    }
 
     // Get the user who will send this email (From:).
     $emailuserfrom = $USER;

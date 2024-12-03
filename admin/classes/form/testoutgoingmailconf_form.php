@@ -48,6 +48,11 @@ class testoutgoingmailconf_form extends \moodleform {
         $mform->setType('recipient', PARAM_EMAIL);
         $mform->addRule('recipient', get_string('required'), 'required');
 
+        // Detect email user.
+        $mform->addElement('checkbox', 'detectuser', get_string('testoutgoingmailconf_toemailuser', 'admin'));
+        $mform->setDefault('detectuser', 1);
+        $mform->addHelpButton('detectuser', 'testoutgoingmailconf_toemailuser', 'admin');
+
         // From user.
         $options = ['maxlength' => '100', 'size' => '25'];
         $mform->addElement('text', 'from', get_string('testoutgoingmailconf_fromemail', 'admin'), $options);

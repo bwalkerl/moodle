@@ -48,9 +48,15 @@ if (!empty($CFG->noemailever)) {
 
 $data = $form->get_data();
 if ($data) {
-    $emailuser = new stdClass();
-    $emailuser->email = $data->recipient;
-    $emailuser->id = -99;
+    if (!empty($data->detectuser) && $emailuser = \core_user::get_user_by_email($data->recipient)) {
+        // When sending to a real user display a profile link.
+        $profileurl = new \moodle_url('/user/view.php', ['id' => $emailuser->id]);
+        $emailuser->profilelink = html_writer::link($profileurl, fullname($emailuser));
+    } else {
+        $emailuser = new stdClass();
+        $emailuser->email = $data->recipient;
+        $emailuser->id = -99;
+    }
 
     // Get the user who will send this email (From:).
     $emailuserfrom = $USER;
@@ -107,17 +113,25 @@ if ($data) {
         $CFG->debugsmtp = $debugsmtp;
     }
 
-    if ($success) {
+    // Email to user can return true without sending, so also check for SMTP output.
+    if ($success && str_contains($smtplog, '<pre>')) {
         $msgparams = new stdClass();
         $msgparams->fromemail = $emailuserfrom->email;
-        $msgparams->toemail = $emailuser->email;
+        $msgparams->toemail = isset($emailuser->profilelink)
+            ? $emailuser->profilelink . ' &lt;' . $emailuser->email . '&gt;'
+            : $emailuser->email;
         $msg = get_string('testoutgoingmailconf_sentmail', 'admin', $msgparams);
         $notificationtype = 'notifysuccess';
     } else {
         $notificationtype = 'notifyproblem';
         // No communication between Moodle and the SMTP server - no error output.
         if (trim($smtplog) == false) {
-            $msg = get_string('testoutgoingmailconf_errorcommunications', 'admin');
+            // Emails to suspended users can end up here as there is no debug output.
+            if (isset($emailuser->suspended) && !empty($emailuser->suspended)) {
+                $msg = get_string('testoutgoingmailconf_suspended', 'admin', ['profilelink' => $emailuser->profilelink]);
+            } else {
+                $msg = get_string('testoutgoingmailconf_errorcommunications', 'admin');
+            }
         } else {
             $msg = $smtplog;
         }

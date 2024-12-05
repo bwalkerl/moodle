@@ -299,10 +299,6 @@ if ($hassiteconfig) {
     $ADMIN->add('server', new admin_externalpage('phpinfo', new lang_string('phpinfo'),
         "{$CFG->wwwroot}/{$CFG->admin}/phpinfo.php"));
 
-    // Test outgoing mail configuration (hidden, accessed via direct link from the settings page).
-    $ADMIN->add('server', new admin_externalpage('testoutgoingmailconf', new lang_string('testoutgoingmailconf', 'admin'),
-        new moodle_url('/admin/testoutgoingmailconf.php'), 'moodle/site:config', true));
-
     // Performance.
     $temp = new admin_settingpage('performance', new lang_string('performance', 'admin'));
 
@@ -620,6 +616,10 @@ if ($hassiteconfig) {
         new lang_string('configemailheaders', 'admin'), '', PARAM_RAW, '50', '3'));
 
     $ADMIN->add('email', $temp);
+
+    // Test outgoing mail configuration.
+    $ADMIN->add('email', new admin_externalpage('testoutgoingmailconf', new lang_string('testoutgoingmailconf', 'admin'),
+        new moodle_url('/admin/testoutgoingmailconf.php')));
 
     // Update notifications.
     if (empty($CFG->disableupdatenotifications)) {

@@ -1106,6 +1106,15 @@ class manager {
     }
 
     /**
+     * Checks whether the task matches the currently running task
+     * @param \core\task\task_base $task
+     * @return bool
+     */
+    public static function matches_running_task(task_base $task): bool {
+        return $task === self::$runningtask;
+    }
+
+    /**
      * This function set's the $runningtask variable and ensures that the shutdown handler is registered.
      * @param task_base $task
      */
@@ -1127,8 +1136,14 @@ class manager {
      */
     public static function adhoc_task_failed(adhoc_task $task) {
         global $DB;
+
+        // Check if the task is currently running.
+        $currenttask = self::matches_running_task($task);
+
         // Finalise the log output.
-        logmanager::finalise_log(true);
+        if ($currenttask) {
+            logmanager::finalise_log(true);
+        }
 
         $delay = $task->get_fail_delay();
 
@@ -1165,7 +1180,9 @@ class manager {
         $task->release_concurrency_lock();
         $task->get_lock()->release();
 
-        self::$runningtask = null;
+        if ($currenttask) {
+            self::$runningtask = null;
+        }
     }
 
     /**
@@ -1210,8 +1227,13 @@ class manager {
     public static function adhoc_task_complete(adhoc_task $task) {
         global $DB;
 
+        // Check if the task is currently running.
+        $currenttask = self::matches_running_task($task);
+
         // Finalise the log output.
-        logmanager::finalise_log();
+        if ($currenttask) {
+            logmanager::finalise_log();
+        }
         $task->set_timestarted();
         $task->set_hostname();
         $task->set_pid();
@@ -1223,7 +1245,9 @@ class manager {
         $task->release_concurrency_lock();
         $task->get_lock()->release();
 
-        self::$runningtask = null;
+        if ($currenttask) {
+            self::$runningtask = null;
+        }
     }
 
     /**
@@ -1233,8 +1257,14 @@ class manager {
      */
     public static function scheduled_task_failed(scheduled_task $task) {
         global $DB;
+
+        // Check if the task is currently running.
+        $currenttask = self::matches_running_task($task);
+
         // Finalise the log output.
-        logmanager::finalise_log(true);
+        if ($currenttask) {
+            logmanager::finalise_log(true);
+        }
 
         $delay = $task->get_fail_delay();
 
@@ -1272,7 +1302,9 @@ class manager {
 
         $task->get_lock()->release();
 
-        self::$runningtask = null;
+        if ($currenttask) {
+            self::$runningtask = null;
+        }
     }
 
     /**
@@ -1330,8 +1362,13 @@ class manager {
     public static function scheduled_task_complete(scheduled_task $task) {
         global $DB;
 
+        // Check if the task is currently running.
+        $currenttask = self::matches_running_task($task);
+
         // Finalise the log output.
-        logmanager::finalise_log();
+        if ($currenttask) {
+            logmanager::finalise_log();
+        }
         $task->set_timestarted();
         $task->set_hostname();
         $task->set_pid();
@@ -1352,7 +1389,9 @@ class manager {
         // Reschedule and then release the locks.
         $task->get_lock()->release();
 
-        self::$runningtask = null;
+        if ($currenttask) {
+            self::$runningtask = null;
+        }
     }
 
     /**

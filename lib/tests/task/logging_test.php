@@ -134,7 +134,7 @@ final class logging_test extends \advanced_testcase {
 
         $task = $this->get_test_adhoc_task();
         logmanager::start_logging($task);
-
+        manager::$runningtask = $task;
         manager::adhoc_task_complete($task);
 
         $this->assertEmpty($logger::$storelogfortask);
@@ -155,7 +155,7 @@ final class logging_test extends \advanced_testcase {
 
         $task = $this->get_test_scheduled_task();
         logmanager::start_logging($task);
-
+        manager::$runningtask = $task;
         manager::scheduled_task_complete($task);
 
         $this->assertEmpty($logger::$storelogfortask);
@@ -179,6 +179,7 @@ final class logging_test extends \advanced_testcase {
         $logger = $this->get_mocked_logger();
 
         logmanager::start_logging($task);
+        manager::$runningtask = $task;
         manager::adhoc_task_failed($task);
 
         $this->assertCount(1, $logger::$storelogfortask);
@@ -204,6 +205,7 @@ final class logging_test extends \advanced_testcase {
         $logger = $this->get_mocked_logger();
 
         logmanager::start_logging($task);
+        manager::$runningtask = $task;
         manager::scheduled_task_failed($task);
 
         $this->assertCount(1, $logger::$storelogfortask);
@@ -229,6 +231,7 @@ final class logging_test extends \advanced_testcase {
         $logger = $this->get_mocked_logger();
 
         logmanager::start_logging($task);
+        manager::$runningtask = $task;
         manager::adhoc_task_failed($task);
 
         $this->assertCount(1, $logger::$storelogfortask);
@@ -254,6 +257,7 @@ final class logging_test extends \advanced_testcase {
         $logger = $this->get_mocked_logger();
 
         logmanager::start_logging($task);
+        manager::$runningtask = $task;
         manager::scheduled_task_failed($task);
 
         $this->assertCount(1, $logger::$storelogfortask);
@@ -278,6 +282,7 @@ final class logging_test extends \advanced_testcase {
         $logger = $this->get_mocked_logger();
 
         logmanager::start_logging($task);
+        manager::$runningtask = $task;
         manager::adhoc_task_complete($task);
 
         $this->assertCount(1, $logger::$storelogfortask);
@@ -302,6 +307,7 @@ final class logging_test extends \advanced_testcase {
         $logger = $this->get_mocked_logger();
 
         logmanager::start_logging($task);
+        manager::$runningtask = $task;
         manager::scheduled_task_complete($task);
 
         $this->assertCount(1, $logger::$storelogfortask);

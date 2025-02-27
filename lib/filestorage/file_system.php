@@ -65,6 +65,26 @@ abstract class file_system {
     }
 
     /**
+     * Get bulk full path on disk for the specified stored files.
+     *
+     * Note: This must return a consistent path for the file's contenthash
+     * and the path _will_ be in a standard local format.
+     * Streamable paths will not work.
+     * A local copy of the file _will_ be fetched if $fetchifnotfound is tree.
+     *
+     * The $fetchifnotfound allows you to determine the expected path of the file.
+     *
+     * @param array $files Array of stored files to serve.
+     * @param bool $fetchifnotfound Whether to attempt to fetch from the remote path if not found.
+     * @return Traversable Iterator of full path to pool files with file content and file
+     */
+    public function get_bulk_local_path_from_storedfile(array $files, $fetchifnotfound = false): Traversable {
+        foreach ($files as $file) {
+            yield $this->get_local_path_from_hash($file->get_contenthash(), $fetchifnotfound) => $file;
+        }
+    }
+
+    /**
      * Get a remote filepath for the specified stored file.
      *
      * This is typically either the same as the local filepath, or it is a streamable resource.

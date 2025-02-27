@@ -119,6 +119,20 @@ class zip_writer extends archive_writer implements file_writer_interface, stream
         fclose($filehandle);
     }
 
+    public function add_files_from_stored_files(array $files) {
+        $system = get_file_storage()->get_file_system();
+        foreach ($system->get_bulk_local_path_from_storedfile($files, true) as $filepath => $file) {
+            if ($file->is_directory()) {
+                continue;
+            }
+            $pathinzip = $file->get_filepath() . $file->get_filename();
+            if (is_readable($filepath)) {
+                $this->add_file_from_filepath($pathinzip, $filepath);
+            } else {
+                $this->add_file_from_stored_file($pathinzip, $file);
+            }
+        }
+    }
     public function finish(): void {
         $this->archive->finish();
 

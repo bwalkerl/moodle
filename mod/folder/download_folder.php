@@ -56,13 +56,7 @@ $foldername = format_string($folder->name, true, ["context" => $context]);
 $filename = shorten_filename(clean_filename($foldername . "-" . date("Ymd")) . ".zip");
 $zipwriter = \core_files\archive_writer::get_stream_writer($filename, \core_files\archive_writer::ZIP_WRITER);
 
-foreach ($files as $file) {
-    if ($file->is_directory()) {
-        continue;
-    }
-    $pathinzip = $file->get_filepath() . $file->get_filename();
-    $zipwriter->add_file_from_stored_file($pathinzip, $file);
-}
+$zipwriter->add_files_from_stored_files($files);
 
 // Finish the archive.
 $zipwriter->finish();

@@ -1,6 +1,11 @@
 This files describes API changes in core libraries and APIs,
 information provided here is intended especially for developers.
 
+=== 4.4.9 ===
+
+* Added a new optional param to adhoc_task_failed and scheduled_task_failed
+to allow skipping log finalisation when called from a separate task.
+
 === 4.4.8 ===
 
 * Behat now supports email content verification using Mailpit.

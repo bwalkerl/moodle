@@ -61,9 +61,8 @@ if (!empty($returnurl)) {
     $redirect = $returnurl;
 }
 
-require_sesskey();
-
 if ($action == 'delete') {
+    require_sesskey();
     lti_delete_tool_proxy($id);
     redirect($redirect);
 }
@@ -81,6 +80,7 @@ $form = new mod_lti_register_types_form($pageurl, (object)$data);
 if ($form->is_cancelled()) {
     redirect($redirect);
 } else if ($data = $form->get_data()) {
+    require_sesskey();
     $id = lti_add_tool_proxy($data);
     redirect($redirect);
 } else {

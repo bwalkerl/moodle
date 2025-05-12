@@ -131,7 +131,7 @@ if ($ADMIN->fulltree) {
     $addtype = get_string('addtype', 'lti');
     $config = get_string('manage_tool_proxies', 'lti');
 
-    $addtypeurl = "{$CFG->wwwroot}/mod/lti/typessettings.php?action=add&amp;sesskey={$USER->sesskey}";
+    $addtypeurl = "{$CFG->wwwroot}/mod/lti/typessettings.php?action=add";
 
     $template = <<< EOD
 <div id="lti_tabs" class="yui-navset">

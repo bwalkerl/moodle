@@ -53,7 +53,7 @@ class tool_configure_page implements renderable, templatable {
         $keyhelp = new help_icon('resourcekey', 'mod_lti');
         $secrethelp = new help_icon('password', 'mod_lti');
 
-        $url = new moodle_url('/mod/lti/typessettings.php', array('sesskey' => sesskey(), 'returnto' => 'toolconfigure'));
+        $url = new moodle_url('/mod/lti/typessettings.php', ['returnto' => 'toolconfigure']);
         $data->configuremanualurl = $url->out();
         $url = new moodle_url('/admin/settings.php?section=modsettinglti');
         $data->managetoolsurl = $url->out();

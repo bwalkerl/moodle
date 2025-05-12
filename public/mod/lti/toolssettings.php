@@ -43,8 +43,6 @@ if ($returnto == 'toolconfigure') {
 // No guest autologin.
 require_login(0, false);
 
-require_sesskey();
-
 // Check this is for a tool created from a tool proxy.
 $err = empty($id);
 if (!$err) {
@@ -52,10 +50,13 @@ if (!$err) {
     $err = empty($type->toolproxyid);
 }
 if ($err) {
-    $params = array('action' => $action, 'id' => $id, 'sesskey' => sesskey(), 'tab' => $tab);
-    if (!empty($returnto)) {
-        $params['returnto'] = $returnto;
-    }
+    $params = array_filter([
+        'action' => $action,
+        'id' => $id,
+        'sesskey' => optional_param('sesskey', '', PARAM_RAW),
+        'tab' => $tab,
+        'returnto' => $returnto,
+    ]);
     $redirect = new moodle_url('/mod/lti/typessettings.php', $params);
     redirect($redirect);
 }
@@ -77,9 +78,11 @@ if (!empty($returnurl)) {
 }
 
 if ($action == 'accept') {
+    require_sesskey();
     lti_set_state_for_type($id, LTI_TOOL_STATE_CONFIGURED);
     redirect($redirect);
 } else if (($action == 'reject') || ($action == 'delete')) {
+    require_sesskey();
     lti_set_state_for_type($id, LTI_TOOL_STATE_REJECTED);
     redirect($redirect);
 }
@@ -93,6 +96,7 @@ if (lti_request_is_using_ssl() && !empty($type->lti_secureicon)) {
 $form = new mod_lti_edit_types_form($pageurl, (object)array('isadmin' => true, 'istool' => true));
 
 if ($data = $form->get_data()) {
+    require_sesskey();
     $type = new stdClass();
     if (!empty($id)) {
         $type->id = $id;

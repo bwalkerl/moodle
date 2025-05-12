@@ -88,7 +88,7 @@ switch ($tab) {
 $registertype = get_string('registertype', 'lti');
 $config = get_string('manage_tools', 'lti');
 
-$registertypeurl = "{$CFG->wwwroot}/mod/lti/registersettings.php?action=add&amp;sesskey={$USER->sesskey}&amp;tab=tool_proxy";
+$registertypeurl = "{$CFG->wwwroot}/mod/lti/registersettings.php?action=add&amp;tab=tool_proxy";
 
 $template = <<< EOD
 <div id="tp_tabs" class="yui-navset">

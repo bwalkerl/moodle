@@ -1769,6 +1769,7 @@ function lti_get_tool_table($tools, $id) {
 
             $updateurl = clone($baseurl);
             $updateurl->param('action', 'update');
+            $updateurl->remove_params('sesskey');
             $updatehtml = $OUTPUT->action_icon($updateurl,
                     new \pix_icon('t/edit', $update, '', array('class' => 'iconsmall')), null,
                     array('title' => $update, 'class' => 'editing_update'));
@@ -1871,6 +1872,7 @@ EOD;
 
             $updateurl = clone($baseurl);
             $updateurl->param('action', 'update');
+            $updateurl->remove_params('sesskey');
             $updatehtml = $OUTPUT->action_icon($updateurl,
                     new \pix_icon('t/edit', $update, '', array('class' => 'iconsmall')), null,
                     array('title' => $update, 'class' => 'editing_update'));
@@ -4073,8 +4075,11 @@ function get_tool_type_icon_url(stdClass $type) {
  * @return string The url to edit the tool type
  */
 function get_tool_type_edit_url(stdClass $type) {
-    $url = new moodle_url('/mod/lti/typessettings.php',
-                          array('action' => 'update', 'id' => $type->id, 'sesskey' => sesskey(), 'returnto' => 'toolconfigure'));
+    $url = new moodle_url('/mod/lti/typessettings.php', [
+        'action' => 'update',
+        'id' => $type->id,
+        'returnto' => 'toolconfigure',
+    ]);
     return $url->out();
 }
 
@@ -4086,8 +4091,11 @@ function get_tool_type_edit_url(stdClass $type) {
  * @return string The url to edit the tool type
  */
 function get_tool_proxy_edit_url(stdClass $proxy) {
-    $url = new moodle_url('/mod/lti/registersettings.php',
-                          array('action' => 'update', 'id' => $proxy->id, 'sesskey' => sesskey(), 'returnto' => 'toolconfigure'));
+    $url = new moodle_url('/mod/lti/registersettings.php', [
+        'action' => 'update',
+        'id' => $proxy->id,
+        'returnto' => 'toolconfigure',
+    ]);
     return $url->out();
 }
 

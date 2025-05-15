@@ -627,6 +627,22 @@ abstract class sql_generator {
     }
 
     /**
+     * Given one xmldb_field, returns the actual default for the current configuration.
+     *
+     * @param xmldb_field $xmldb_field The field.
+     * @return mixed The actual default of the field.
+     */
+    public function getDefault($xmldb_field) {
+        // Default clauses all use getDefaultValue(), which has custom values for char.
+        // This isn't replicated in $xmldb_field->getDefault(), so we need another value for comparisons.
+        $default = $xmldb_field->getDefault();
+        if ($default === null && $xmldb_field->getType() == XMLDB_TYPE_CHAR && $xmldb_field->getNotNull()) {
+            return $this->default_for_char;
+        }
+        return $default;
+    }
+
+    /**
      * Given one correct xmldb_table and the new name, returns the SQL statements
      * to rename it (inside one array).
      *
@@ -798,7 +814,7 @@ abstract class sql_generator {
         $fieldname = $this->getEncQuoted($xmldb_field->getName());
 
         // Decide if we are going to create/modify or to drop the default
-        if ($xmldb_field->getDefault() === null) {
+        if ($this->getDefault($xmldb_field) === null) {
             $results = $this->getDropDefaultSQL($xmldb_table, $xmldb_field); //Drop
         } else {
             $results = $this->getCreateDefaultSQL($xmldb_table, $xmldb_field); //Create/modify

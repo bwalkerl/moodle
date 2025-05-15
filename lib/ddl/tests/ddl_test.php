@@ -2483,7 +2483,75 @@ final class ddl_test extends \database_driver_testcase {
         $this->assertContains("column 'courseid' has incorrect type 'I', expected 'N'", $errors);
         $this->assertContains("column 'missingcolumn' is missing", $errors);
         $this->assertContains("Missing index 'missingkey' (not unique (courseid)).", $errors);
-        $this->assertContains("Unexpected index '{$CFG->prefix}testchecdbsche_ext_uix'.", $errors);
+        $this->assertContains("Unexpected index '{$CFG->prefix}testchecdbsche_ext_uix'", $errors);
         $this->assertContains("column 'extracolumn' is not expected (I)", $errors);
+    }
+
+    /**
+     * Tests fix_database_schema().
+     */
+    public function test_fix_database_schema(): void {
+        global $DB;
+
+        $dbmanager = $DB->get_manager();
+
+        // Create a table in the database we will be using to compare with a schema. This will be the "bad" table.
+        $table = new xmldb_table('test_fix_db_schema');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('courseid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('allownull', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('disallownull', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $table->add_field('nulldefault', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, 1);
+        $table->add_field('intincrease', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('charincrease', XMLDB_TYPE_CHAR, '40', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('chardecrease', XMLDB_TYPE_CHAR, '40', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('floatincrease', XMLDB_TYPE_NUMBER, '10, 2', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('floatdecrease', XMLDB_TYPE_NUMBER, '10, 2', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('floatincprec', XMLDB_TYPE_NUMBER, '10, 2', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('floatdecprec', XMLDB_TYPE_NUMBER, '10, 2', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('multichanges', XMLDB_TYPE_NUMBER, '10, 2', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('extracolumn', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('extraindex', XMLDB_KEY_UNIQUE, ['extracolumn']);
+        $table->setComment("This is a test table, you can drop it safely.");
+        $dbmanager->create_table($table);
+
+        // Create a new table for the schema with many points of difference.
+        $table = new xmldb_table('test_fix_db_schema');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('courseid', XMLDB_TYPE_NUMBER, '10, 2', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('allownull', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $table->add_field('disallownull', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('nulldefault', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('intincrease', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('charincrease', XMLDB_TYPE_CHAR, '50', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('chardecrease', XMLDB_TYPE_CHAR, '30', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('floatincrease', XMLDB_TYPE_NUMBER, '12, 2', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('floatdecrease', XMLDB_TYPE_NUMBER, '8, 2', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('floatincprec', XMLDB_TYPE_NUMBER, '10, 4', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('floatdecprec', XMLDB_TYPE_NUMBER, '10, 1', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('multichanges', XMLDB_TYPE_NUMBER, '10, 1', null, null, null, 1);
+        $table->add_field('missingcolumn', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('missingkey', XMLDB_KEY_FOREIGN, ['courseid'], 'course', ['id']);
+
+        $schema = new xmldb_structure('testschema');
+        $schema->addTable($table);
+
+        $errors = $dbmanager->check_database_schema($schema, null, true);
+        $errors = ['test_fix_db_schema' => $errors['test_fix_db_schema']];
+        $this->assertCount(18, $errors['test_fix_db_schema']);
+
+        // Run the schema fix.
+        // TODO: Add more specific tests per type.
+        ob_start();
+        $dbmanager->fix_database_schema($errors, ['safe', 'risky', 'manual', 'unsafe']);
+        ob_end_clean();
+
+        // Now run a new check and confirm all issues are fixed.
+        $errors = $dbmanager->check_database_schema($schema, null, false);
+        $this->assertArrayNotHasKey('test_fix_db_schema', $errors);
     }
 }

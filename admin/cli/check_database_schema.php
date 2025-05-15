@@ -31,20 +31,29 @@ require_once($CFG->libdir.'/clilib.php');
 $help = "Validate database structure
 
 Options:
+--tables=tablename    Runs fixes only on specified tables
+--exclude=tablename   Exclude fixes on specified tables
+--check-risky         Runs potentially slow queries on data to check if risky fixes are safe
+--update-risky        Runs SQL to resolve the data issues where possible
+--fix=safe            Runs SQL to fix schema issues for all specified levels. safe, risky, unsafe, manual
 -h, --help            Print out this help.
 
 Example:
 \$ sudo -u www-data /usr/bin/php admin/cli/check_database_schema.php
+\$ sudo -u www-data /usr/bin/php admin/cli/check_database_schema.php --tables=config,config_plugins --fix=safe
+\$ sudo -u www-data /usr/bin/php admin/cli/check_database_schema.php --check-risky --fix=safe
 ";
 
-list($options, $unrecognized) = cli_get_params(
-    array(
-        'help' => false,
-    ),
-    array(
-        'h' => 'help',
-    )
-);
+list($options, $unrecognized) = cli_get_params([
+    'help' => false,
+    'tables' => false,
+    'exclude' => false,
+    'check-risky' => false,
+    'update-risky' => false,
+    'fix' => false,
+], [
+    'h' => 'help',
+]);
 
 if ($options['help']) {
     echo $help;
@@ -59,18 +68,46 @@ if (empty($CFG->version)) {
 $dbmanager = $DB->get_manager();
 $schema = $dbmanager->get_install_xml_schema();
 
-if (!$errors = $dbmanager->check_database_schema($schema)) {
+if (!$errors = $dbmanager->check_database_schema($schema, null, true)) {
     echo "Database structure is ok.\n";
     exit(0);
 }
 
 foreach ($errors as $table => $items) {
     cli_separator();
-    echo "$table\n";
+    mtrace($table);
     foreach ($items as $item) {
-        echo " * $item\n";
+        mtrace(" * $item->desc ($item->fix)");
     }
 }
 cli_separator();
+
+if ($options['tables']) {
+    mtrace("Restricting fixes to tables: " . $options['tables']);
+    $tables = array_map('trim', explode(',', $options['tables']));
+    $errors = array_filter($errors, fn($key) => in_array($key, $tables, true), ARRAY_FILTER_USE_KEY);
+}
+
+if ($options['exclude']) {
+    mtrace("Excluding fixes from tables: " . $options['exclude']);
+    $exclude = array_map('trim', explode(',', $options['exclude']));
+    $errors = array_filter($errors, fn($key) => !in_array($key, $exclude, true), ARRAY_FILTER_USE_KEY);
+}
+
+if ($options['update-risky']) {
+    mtrace("Running SQL to resolve the data issues where possible");
+    $dbmanager->evaluate_risky_errors($errors, true);
+    cli_separator();
+} else if ($options['check-risky']) {
+    mtrace("Running further tests to check safety of risky fixes");
+    $dbmanager->evaluate_risky_errors($errors, false);
+    cli_separator();
+}
+
+if ($errors && $options['fix']) {
+    mtrace("Running schema alignment fixes for safety level: " . $options['fix']);
+    $levels = array_map('trim', explode(',', $options['fix']));
+    $dbmanager->fix_database_schema($errors, $levels);
+}
 
 exit(1);

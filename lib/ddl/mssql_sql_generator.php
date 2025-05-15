@@ -480,7 +480,7 @@ class mssql_sql_generator extends sql_generator {
         $results = array();
 
         // Decide if we are going to create/modify or to drop the default
-        if ($xmldb_field->getDefault() === null) {
+        if ($this->getDefault($xmldb_field) === null) {
             $results = $this->getDropDefaultSQL($xmldb_table, $xmldb_field); //Drop but, under some circumstances, re-enable
             $default_clause = $this->getDefaultClause($xmldb_field);
             if ($default_clause) { //If getDefaultClause() it must have one default, create it

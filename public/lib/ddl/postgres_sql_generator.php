@@ -299,8 +299,7 @@ class postgres_sql_generator extends sql_generator {
             $decimalchanged = false;
         }
         // Detect if we are changing the default
-        if (($xmldb_field->getDefault() === null && $olddefault === null) ||
-            ($xmldb_field->getDefault() === $olddefault)) {
+        if ($this->get_default($xmldb_field) === $olddefault) {
             $defaultchanged = false;
         }
         // Detect if we are changing the nullability

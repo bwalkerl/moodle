@@ -26,6 +26,15 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+use core\ddl\schema_alignment\changed_column;
+use core\ddl\schema_alignment\extra_column;
+use core\ddl\schema_alignment\extra_index;
+use core\ddl\schema_alignment\extra_table;
+use core\ddl\schema_alignment\missing_column;
+use core\ddl\schema_alignment\missing_index;
+use core\ddl\schema_alignment\missing_table;
+use core\ddl\schema_alignment\schema_manager;
+
 /**
  * Database manager instance is responsible for all database structure modifications.
  *
@@ -38,7 +47,6 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class database_manager {
-
     /** @var moodle_database A moodle_database driver specific instance.*/
     protected $mdb;
 
@@ -924,9 +932,11 @@ class database_manager {
     /**
      * Reads the install.xml files for Moodle core and modules and returns an array of
      * xmldb_structure object with xmldb_table from these files.
+     * @param array|null $limittables limits the schema to tables in the list
+     * @param array|null $excludetables excludes tables in the list from the schema
      * @return xmldb_structure schema from install.xml files
      */
-    public function get_install_xml_schema() {
+    public function get_install_xml_schema(?array $limittables = null, ?array $excludetables = null) {
         global $CFG;
         require_once($CFG->libdir.'/adminlib.php');
 
@@ -941,6 +951,12 @@ class database_manager {
             $structure = $xmldb_file->getStructure();
             $tables = $structure->getTables();
             foreach ($tables as $table) {
+                if (isset($limittables) && !in_array($table->getName(), $limittables)) {
+                    continue;
+                }
+                if (isset($excludetables) && in_array($table->getName(), $excludetables)) {
+                    continue;
+                }
                 $table->setPrevious(null);
                 $table->setNext(null);
                 $schema->addTable($table);
@@ -953,37 +969,19 @@ class database_manager {
      * Checks the database schema against a schema specified by an xmldb_structure object
      * @param xmldb_structure $schema export schema describing all known tables
      * @param array $options
-     * @return array keyed by table name with array of difference messages as values
+     * @param bool $summary if true return only issue descriptions, otherwise return schema manager
+     * @return array|schema_manager keyed by table name with array of difference messages as values, or schema manager
      */
-    public function check_database_schema(xmldb_structure $schema, ?array $options = null) {
-        $alloptions = array(
-            'extratables' => true,
-            'missingtables' => true,
-            'extracolumns' => true,
-            'missingcolumns' => true,
-            'changedcolumns' => true,
-            'missingindexes' => true,
-            'extraindexes' => true
-        );
-
-        $typesmap = array(
-            'I' => XMLDB_TYPE_INTEGER,
-            'R' => XMLDB_TYPE_INTEGER,
-            'N' => XMLDB_TYPE_NUMBER,
-            'F' => XMLDB_TYPE_NUMBER, // Nobody should be using floats!
-            'C' => XMLDB_TYPE_CHAR,
-            'X' => XMLDB_TYPE_TEXT,
-            'B' => XMLDB_TYPE_BINARY,
-            'T' => XMLDB_TYPE_TIMESTAMP,
-            'D' => XMLDB_TYPE_DATETIME,
-        );
+    public function check_database_schema(xmldb_structure $schema, ?array $options = null, bool $summary = true) {
+        $alloptions = array_fill_keys(schema_manager::ISSUE_KEYS, true);
+        $typesmap = changed_column::TYPES_MAP;
 
         $options = (array)$options;
         $options = array_merge($alloptions, $options);
 
         // Note: the error descriptions are not supposed to be localised,
         //       it is intended for developers and skilled admins only.
-        $errors = array();
+        $sm = new schema_manager();
 
         /** @var string[] $dbtables */
         $dbtables = $this->mdb->get_tables(false);
@@ -993,10 +991,11 @@ class database_manager {
         foreach ($tables as $table) {
             $tablename = $table->getName();
 
-            if ($options['missingtables']) {
+            if ($options[missing_table::KEY]) {
                 // Missing tables are a fatal problem.
                 if (empty($dbtables[$tablename])) {
-                    $errors[$tablename][] = "table is missing";
+                    $msg = 'table is missing';
+                    $sm->add(new missing_table($msg, $table));
                     continue;
                 }
             }
@@ -1010,15 +1009,16 @@ class database_manager {
             foreach ($fields as $field) {
                 $fieldname = $field->getName();
                 if (empty($dbfields[$fieldname])) {
-                    if ($options['missingcolumns']) {
-                        // Missing columns are a fatal problem.
-                        $errors[$tablename][] = "column '$fieldname' is missing";
+                    if ($options[missing_column::KEY]) {
+                        $msg = "column '$fieldname' is missing";
+                        $sm->add(new missing_column($msg, $table, $field));
                     }
-                } else if ($options['changedcolumns']) {
+                } else if ($options[changed_column::KEY]) {
                     $dbfield = $dbfields[$fieldname];
 
                     if (!isset($typesmap[$dbfield->meta_type])) {
-                        $errors[$tablename][] = "column '$fieldname' has unsupported type '$dbfield->meta_type'";
+                        $msg = "column '$fieldname' has unsupported type '$dbfield->meta_type'";
+                        $sm->add(new changed_column($msg, $table, $field, $dbfield, changed_column::ISSUE_TYPE));
                     } else {
                         $dbtype = $typesmap[$dbfield->meta_type];
                         $type = $field->getType();
@@ -1027,17 +1027,19 @@ class database_manager {
                         }
                         if ($type != $dbtype) {
                             if ($expected = array_search($type, $typesmap)) {
-                                $errors[$tablename][] = "column '$fieldname' has incorrect type '$dbfield->meta_type', expected '$expected'";
+                                $msg = "column '$fieldname' has incorrect type '$dbfield->meta_type', expected '$expected'";
                             } else {
-                                $errors[$tablename][] = "column '$fieldname' has incorrect type '$dbfield->meta_type'";
+                                $msg = "column '$fieldname' has incorrect type '$dbfield->meta_type'";
                             }
+                            $sm->add(new changed_column($msg, $table, $field, $dbfield, changed_column::ISSUE_TYPE));
                         } else {
                             if ($field->getNotNull() != $dbfield->not_null) {
                                 if ($field->getNotNull()) {
-                                    $errors[$tablename][] = "column '$fieldname' should be NOT NULL ($dbfield->meta_type)";
+                                    $msg = "column '$fieldname' should be NOT NULL ($dbfield->meta_type)";
                                 } else {
-                                    $errors[$tablename][] = "column '$fieldname' should allow NULL ($dbfield->meta_type)";
+                                    $msg = "column '$fieldname' should allow NULL ($dbfield->meta_type)";
                                 }
+                                $sm->add(new changed_column($msg, $table, $field, $dbfield, changed_column::ISSUE_NULL));
                             }
                             switch ($dbtype) {
                                 case XMLDB_TYPE_TEXT:
@@ -1052,16 +1054,17 @@ class database_manager {
                                     if ($field->getType() != XMLDB_TYPE_FLOAT && ($lengthmismatch || $decimalmismatch)) {
                                         $size = "({$field->getLength()},{$field->getDecimals()})";
                                         $dbsize = "($dbfield->max_length,$dbfield->scale)";
-                                        $errors[$tablename][] = "column '$fieldname' size is $dbsize,".
-                                            " expected $size ($dbfield->meta_type)";
+                                        $msg = "column '$fieldname' size is $dbsize, expected $size ($dbfield->meta_type)";
+                                        $sm->add(new changed_column($msg, $table, $field, $dbfield, changed_column::ISSUE_LENGTH));
                                     }
                                     break;
 
                                 case XMLDB_TYPE_CHAR:
                                     // This is not critical, but they should ideally match.
                                     if ($field->getLength() != $dbfield->max_length) {
-                                        $errors[$tablename][] = "column '$fieldname' length is $dbfield->max_length,".
-                                            " expected {$field->getLength()} ($dbfield->meta_type)";
+                                        $msg = "column '$fieldname' length is $dbfield->max_length, " .
+                                            "expected {$field->getLength()} ($dbfield->meta_type)";
+                                        $sm->add(new changed_column($msg, $table, $field, $dbfield, changed_column::ISSUE_LENGTH));
                                     }
                                     break;
 
@@ -1073,33 +1076,47 @@ class database_manager {
                                         $length = 18;
                                     }
                                     if ($length > $dbfield->max_length) {
-                                        $errors[$tablename][] = "column '$fieldname' length is $dbfield->max_length,".
-                                            " expected at least {$field->getLength()} ($dbfield->meta_type)";
+                                        $msg = "column '$fieldname' length is $dbfield->max_length, " .
+                                            "expected at least {$field->getLength()} ($dbfield->meta_type)";
+                                        $sm->add(new changed_column($msg, $table, $field, $dbfield, changed_column::ISSUE_LENGTH));
                                     }
                                     break;
 
                                 case XMLDB_TYPE_TIMESTAMP:
-                                    $errors[$tablename][] = "column '$fieldname' is a timestamp,".
-                                        " this type is not supported ($dbfield->meta_type)";
+                                    $msg = "column '$fieldname' is a timestamp, this type is not supported ($dbfield->meta_type)";
+                                    $sm->add(new changed_column($msg, $table, $field, $dbfield, changed_column::ISSUE_DBTYPE));
                                     continue 2;
 
                                 case XMLDB_TYPE_DATETIME:
-                                    $errors[$tablename][] = "column '$fieldname' is a datetime,".
-                                        "this type is not supported ($dbfield->meta_type)";
+                                    $msg = "column '$fieldname' is a datetime, this type is not supported ($dbfield->meta_type)";
+                                    $sm->add(new changed_column($msg, $table, $field, $dbfield, changed_column::ISSUE_DBTYPE));
                                     continue 2;
 
                                 default:
                                     // Report all other unsupported types as problems.
-                                    $errors[$tablename][] = "column '$fieldname' has unknown type ($dbfield->meta_type)";
+                                    $msg = "column '$fieldname' has unknown type ($dbfield->meta_type)";
+                                    $sm->add(new changed_column($msg, $table, $field, $dbfield, changed_column::ISSUE_DBTYPE));
                                     continue 2;
 
                             }
 
                             // Note: The empty string defaults are a bit messy...
-                            if ($field->getDefault() != $dbfield->default_value) {
-                                $default = is_null($field->getDefault()) ? 'NULL' : $field->getDefault();
-                                $dbdefault = is_null($dbfield->default_value) ? 'NULL' : $dbfield->default_value;
-                                $errors[$tablename][] = "column '$fieldname' has default '$dbdefault', expected '$default' ($dbfield->meta_type)";
+                            $default = $this->generator->getDefault($field);
+                            $dbdefault = $dbfield->has_default ? $dbfield->default_value : null;
+
+                            // We need to cast values for strict comparison of defaults.
+                            if ($type == XMLDB_TYPE_NUMBER) {
+                                $default = $default !== null ? (float) $default : null;
+                                $dbdefault = $dbdefault !== null ? (float) $dbdefault : null;
+                            } else {
+                                $default = $default !== null ? (string) $default : null;
+                            }
+
+                            if ($default !== $dbdefault) {
+                                $default ??= 'NULL';
+                                $dbdefault ??= 'NULL';
+                                $msg = "column '$fieldname' has default '$dbdefault', expected '$default' ($dbfield->meta_type)";
+                                $sm->add(new changed_column($msg, $table, $field, $dbfield, changed_column::ISSUE_DEFAULT));
                             }
                         }
                     }
@@ -1108,7 +1125,7 @@ class database_manager {
             }
 
             // Check for missing indexes/keys.
-            if ($options['missingindexes']) {
+            if ($options[missing_index::KEY]) {
                 // Check the foreign keys.
                 if ($keys = $table->getKeys()) {
                     foreach ($keys as $key) {
@@ -1120,7 +1137,7 @@ class database_manager {
                         $keyname = $key->getName();
 
                         // Create the interim index.
-                        $index = new xmldb_index('anyname');
+                        $index = new xmldb_index($keyname);
                         $index->setFields($key->getFields());
                         switch ($key->getType()) {
                             case XMLDB_KEY_UNIQUE:
@@ -1132,7 +1149,8 @@ class database_manager {
                                 break;
                         }
                         if (!$this->index_exists($table, $index)) {
-                            $errors[$tablename][] = $this->get_missing_index_error($table, $index, $keyname);
+                            $msg = $this->get_missing_index_error($table, $index, $keyname);
+                            $sm->add(new missing_index($msg, $table, $index));
                         } else {
                             $this->remove_index_from_dbindex($dbindexes, $index);
                         }
@@ -1143,7 +1161,8 @@ class database_manager {
                 if ($indexes = $table->getIndexes()) {
                     foreach ($indexes as $index) {
                         if (!$this->index_exists($table, $index)) {
-                            $errors[$tablename][] = $this->get_missing_index_error($table, $index, $index->getName());
+                            $msg = $this->get_missing_index_error($table, $index, $index->getName());
+                            $sm->add(new missing_index($msg, $table, $index));
                         } else {
                             $this->remove_index_from_dbindex($dbindexes, $index);
                         }
@@ -1152,30 +1171,42 @@ class database_manager {
             }
 
             // Check if we should show the extra indexes.
-            if ($options['extraindexes']) {
+            if ($options[extra_index::KEY]) {
                 // Hack - skip for table 'search_simpledb_index' as this plugin adds indexes dynamically on install
                 // which are not included in install.xml. See search/engine/simpledb/db/install.php.
                 if ($tablename != 'search_simpledb_index') {
                     foreach ($dbindexes as $indexname => $index) {
-                        $errors[$tablename][] = "Unexpected index '$indexname'.";
+                        $msg = "Unexpected index '$indexname'";
+                        $indextype = $index['unique'] ? XMLDB_INDEX_UNIQUE : XMLDB_INDEX_NOTUNIQUE;
+                        $xmldbindex = new xmldb_index($indexname, $indextype, $index['columns']);
+                        $sm->add(new extra_index($msg, $table, $xmldbindex));
                     }
                 }
             }
 
             // Check for extra columns (indicates unsupported hacks) - modify install.xml if you want to pass validation.
             foreach ($dbfields as $fieldname => $dbfield) {
-                if ($options['extracolumns']) {
-                    $errors[$tablename][] = "column '$fieldname' is not expected ($dbfield->meta_type)";
+                if ($options[extra_column::KEY]) {
+                    $msg = "column '$fieldname' is not expected ($dbfield->meta_type)";
+                    $sm->add(new extra_column($msg, $table, new xmldb_field($fieldname), $dbfield));
                 }
             }
             unset($dbtables[$tablename]);
         }
 
-        if ($options['extratables']) {
+        if ($options[extra_table::KEY]) {
             // Look for unsupported tables - local custom tables should be in /local/xxxx/db/install.xml file.
             // If there is no prefix, we can not say if table is ours, sorry.
             if ($this->generator->prefix !== '') {
                 foreach ($dbtables as $tablename => $unused) {
+                    if (isset($options['tables']) && !in_array($tablename, $options['tables'])) {
+                        // Only process tables in the tables list.
+                        continue;
+                    }
+                    if (isset($options['exclude']) && in_array($tablename, $options['exclude'])) {
+                        // Exclude tables in exclude list.
+                        continue;
+                    }
                     if (strpos($tablename, 'pma_') === 0) {
                         // Ignore phpmyadmin tables.
                         continue;
@@ -1183,15 +1214,17 @@ class database_manager {
                     if (strpos($tablename, 'test') === 0) {
                         // Legacy simple test db tables need to be eventually removed,
                         // report them as problems!
-                        $errors[$tablename][] = "table is not expected (it may be a leftover after Simpletest unit tests)";
+                        $msg = 'table is not expected (it may be a leftover after Simpletest unit tests)';
                     } else {
-                        $errors[$tablename][] = "table is not expected";
+                        $msg = 'table is not expected';
                     }
+                    $sm->add(new extra_table($msg, new xmldb_table($tablename)));
                 }
             }
         }
 
-        return $errors;
+        $sm->sort_issues();
+        return $summary ? $sm->get_summary() : $sm;
     }
 
     /**
@@ -1222,5 +1255,60 @@ class database_manager {
                 unset($dbindexes[$key]);
             }
         }
+    }
+
+    /**
+     * Resolves a list of table name patterns into matching table names.
+     *
+     * @param array $patterns List of table name patterns with wildcards
+     * @return array List of matched table names
+     */
+    public function resolve_table_patterns(array $patterns): array {
+        $tables = [];
+        $schematables = $this->get_all_table_names();
+        foreach ($patterns as $pattern) {
+            // Add exact table names as is.
+            if (!str_contains($pattern, '*')) {
+                $tables[] = $pattern;
+                continue;
+            }
+            // Convert wildcard pattern to regex.
+            $regex = '/^' . strtr(preg_quote($pattern, '/'), ['\*' => '.*']) . '$/';
+            foreach ($schematables as $table) {
+                if (preg_match($regex, $table)) {
+                    $tables[] = $table;
+                }
+            }
+        }
+        return $tables;
+    }
+
+    /**
+     * Gets all table names defined in either the schema or the database
+     *
+     * @return array List of table names
+     */
+    protected function get_all_table_names(): array {
+        $tablenames = [];
+
+        // Get table names from the schema.
+        foreach ($this->get_install_xml_files() as $filename) {
+            $file = new xmldb_file($filename);
+            if (!$file->loadXMLStructure()) {
+                continue;
+            }
+            $structure = $file->getStructure();
+            $tables = $structure->getTables();
+            foreach ($tables as $table) {
+                $tablenames[] = $table->getName();
+            }
+        }
+
+        // Get table names from the database.
+        foreach ($this->mdb->get_tables(false) as $tablename) {
+            $tablenames[] = $tablename;
+        }
+
+        return array_unique($tablenames);
     }
 }

@@ -16,6 +16,7 @@
 
 namespace core;
 
+use core\ddl\schema_alignment\schema_issue;
 use database_column_info;
 use moodle_database;
 use sql_generator;
@@ -2483,7 +2484,144 @@ final class ddl_test extends \database_driver_testcase {
         $this->assertContains("column 'courseid' has incorrect type 'I', expected 'N'", $errors);
         $this->assertContains("column 'missingcolumn' is missing", $errors);
         $this->assertContains("Missing index 'missingkey' (not unique (courseid)).", $errors);
-        $this->assertContains("Unexpected index '{$CFG->prefix}testchecdbsche_ext_uix'.", $errors);
+        $this->assertContains("Unexpected index '{$CFG->prefix}testchecdbsche_ext_uix'", $errors);
         $this->assertContains("column 'extracolumn' is not expected (I)", $errors);
+    }
+
+    /**
+     * Tests fixing schema issues.
+     *
+     * @covers \core\ddl\schema_alignment\schema_manager
+     */
+    public function test_fix_database_schema(): void {
+        global $DB;
+
+        $dbmanager = $DB->get_manager();
+        $fixtable = 'test_fix_db_schema';
+
+        // Create a table in the database we will be using to compare with a schema. This will be the "bad" table.
+        $table = new xmldb_table($fixtable);
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('courseid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('allownull', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('disallownull', XMLDB_TYPE_INTEGER, '10', null, null, null, 0);
+        $table->add_field('disallownulltext', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $table->add_field('nulldefault', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('intincrease', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('charincrease', XMLDB_TYPE_CHAR, '40', null, XMLDB_NOTNULL, null, 'default');
+        $table->add_field('chardecrease', XMLDB_TYPE_CHAR, '40', null, XMLDB_NOTNULL, null, 'default');
+        $table->add_field('floatincrease', XMLDB_TYPE_NUMBER, '10, 2', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('floatdecrease', XMLDB_TYPE_NUMBER, '10, 2', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('floatincprec', XMLDB_TYPE_NUMBER, '10, 2', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('floatdecprec', XMLDB_TYPE_NUMBER, '10, 2', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('chartoint', XMLDB_TYPE_CHAR, '10', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('chartonum', XMLDB_TYPE_CHAR, '10', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('multichanges', XMLDB_TYPE_NUMBER, '10, 2', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('extracolumn', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, 0);
+
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_index('extraindex', XMLDB_INDEX_NOTUNIQUE, ['extracolumn']);
+        $table->setComment("This is a test table, you can drop it safely.");
+        $dbmanager->create_table($table);
+
+        // Add data that should be invalid under the new schema.
+        $DB->insert_record($fixtable, [
+            'disallownull' => null,
+            'disallownulltext' => null,
+            'chardecrease' => 'This is over 30 characters long.',
+            'floatdecrease' => 9999999.99,
+            'floatincprec' => 9999999.99,
+            'chartoint' => 'Text',
+            'chartonum' => 'Text',
+        ]);
+
+        // Create a new schema with many points of difference.
+        $table = new xmldb_table($fixtable);
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('courseid', XMLDB_TYPE_NUMBER, '10, 2', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('allownull', XMLDB_TYPE_INTEGER, '10', null, null, null, 0);
+        $table->add_field('disallownull', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('disallownulltext', XMLDB_TYPE_TEXT, null, null, XMLDB_NOTNULL, null, null);
+        $table->add_field('nulldefault', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('intincrease', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('charincrease', XMLDB_TYPE_CHAR, '50', null, XMLDB_NOTNULL, null, 'default');
+        $table->add_field('chardecrease', XMLDB_TYPE_CHAR, '30', null, XMLDB_NOTNULL, null, 'default');
+        $table->add_field('floatincrease', XMLDB_TYPE_NUMBER, '12, 2', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('floatdecrease', XMLDB_TYPE_NUMBER, '8, 2', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('floatincprec', XMLDB_TYPE_NUMBER, '10, 4', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('floatdecprec', XMLDB_TYPE_NUMBER, '10, 1', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('chartoint', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('chartonum', XMLDB_TYPE_NUMBER, '10,2', null, XMLDB_NOTNULL, null, 0);
+        $table->add_field('multichanges', XMLDB_TYPE_NUMBER, '10, 1', null, null, null, 1);
+        $table->add_field('missingcolumn', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('missingkey', XMLDB_KEY_FOREIGN, ['courseid'], 'course', ['id']);
+        $table->add_index('missingindex', XMLDB_INDEX_NOTUNIQUE, ['missingcolumn']);
+
+        $schema = new xmldb_structure('testschema');
+        $schema->addTable($table);
+        $options = [
+            'tables' => [$fixtable],
+        ];
+
+        // Confirm we have a large number of errors. If the schema check changes, other numbers may need updating.
+        $sm = $dbmanager->check_database_schema($schema, $options, false);
+        $this->assertEquals(22, $sm->count_issues());
+        $this->assertEquals(7, $sm->count_issues([schema_issue::SAFE]));
+        $this->assertEquals(8, $sm->count_issues([schema_issue::RISKY]));
+        $this->assertEquals(5, $sm->count_issues([schema_issue::UNSAFE]));
+        $this->assertEquals(1, $sm->count_issues([schema_issue::DBINDEX]));
+        $this->assertEquals(1, $sm->count_issues([schema_issue::UNFIXABLE]));
+
+        // Check the error numbers after evaluating the risky errors.
+        $sm->evaluate_risky_issues();
+        $this->assertEquals(0, $sm->count_issues([schema_issue::RISKY]));
+        $this->assertEquals(8, $sm->count_issues([schema_issue::SAFE]));
+
+        // Unsafe:
+        // 1. Extra column. Need to drop column.
+        // 2. Numeric column with decrease in decimals. Need to round data.
+        // 3-4. Column with not null field containing null values. Need to convert to default.
+        // 5. Character decrease containing data longer than the new length. Need to truncate.
+        // 6-8. Column with multiple issues (including decimal decrease). All flagged as unsafe.
+        $this->assertEquals(8, $sm->count_issues([schema_issue::UNSAFE]));
+
+        // Unfixable:
+        // 1. Missing column with not null and no default and data.
+        // 2. Numeric decrease with data longer than the new length.
+        // 3. Numeric increase in precision with data longer than the new length.
+        // 4. Converting column to int type with non-integer values.
+        // 5. Converting column to number type with non-numeric values.
+        $this->assertEquals(5, $sm->count_issues([schema_issue::UNFIXABLE]));
+
+        // Now run the fix.
+        $fixes = $sm->fix_schema_issues([schema_issue::SAFE, schema_issue::UNSAFE, schema_issue::DBINDEX]);
+        $this->assertEquals(16, $fixes);
+
+        // Run a new check. We should only be left with data issues that can't be fixed automatically.
+        $errors = $dbmanager->check_database_schema($schema, $options, false);
+        // This should be the unfixable errors and a missing index dependent on a missing column.
+        $this->assertEquals(6, $errors->count_issues());
+
+        // Fix problematic data to confirm these can be fixed once the data issues are resolved.
+        $DB->set_field($fixtable, 'floatdecrease', 999999.99, ['floatdecrease' => 9999999.99]);
+        $DB->set_field($fixtable, 'floatincprec', 999999.99, ['floatincprec' => 9999999.99]);
+        $DB->set_field($fixtable, 'chartoint', '-1', ['chartoint' => 'Text']);
+        $DB->set_field($fixtable, 'chartonum', '1.111', ['chartonum' => 'Text']);
+
+        $errors = $dbmanager->check_database_schema($schema, $options, false);
+        $fixes = $errors->fix_schema_issues([schema_issue::SAFE, schema_issue::RISKY, schema_issue::UNSAFE]);
+        $this->assertEquals(4, $fixes);
+
+        // The only remaining issue is the missing column and index, which can only be added when there's no data.
+        $DB->delete_records($fixtable);
+        $errors = $dbmanager->check_database_schema($schema, $options, false);
+        $fixes = $errors->fix_schema_issues([schema_issue::SAFE]);
+        $this->assertEquals(2, $fixes);
+
+        // Run a full check to make sure everything is resolved.
+        $errors = $dbmanager->check_database_schema($schema, $options, false);
+        $this->assertEquals(0, $errors->count_issues());
     }
 }

@@ -29,6 +29,8 @@ defined('MOODLE_INTERNAL') || die();
 
 use core\check\check;
 use core\check\result;
+use core\ddl\schema_alignment\schema_issue;
+use core\ddl\schema_alignment\schema_manager;
 
 /**
  * DB schema performance check
@@ -63,23 +65,109 @@ class dbschema extends check {
      * @return result
      */
     public function get_result(): result {
-        global $DB;
+        global $DB, $PAGE;
 
         $dbmanager = $DB->get_manager();
         $schema = $dbmanager->get_install_xml_schema();
 
-        if (!$errors = $dbmanager->check_database_schema($schema)) {
+        $sm = $dbmanager->check_database_schema($schema, null, false);
+        $issues = $sm->get_issues();
+        if (!$issues) {
             return new result(result::OK, get_string('check_dbschema_ok', 'report_performance'), '');
         }
 
-        $details = '';
-        foreach ($errors as $tablename => $items) {
-            $details .= \html_writer::tag('h4', $tablename);
-            foreach ($items as $item) {
-                $details .= \html_writer::tag('pre', $item);
+        $checkrisky = optional_param('checkrisky', null, PARAM_BOOL);
+        if (isset($checkrisky)) {
+            $sm->evaluate_risky_issues();
+        }
+
+        $status = $this->get_status($issues);
+        $details = $this->get_table($issues);
+
+        if ($sm->get_issues([schema_issue::RISKY])) {
+            $details .= \html_writer::link(
+                new \moodle_url($PAGE->url, ['detail' => 'core_dbschema', 'checkrisky' => true]),
+                get_string('check_dbschema_risky', 'report_performance'),
+                ['class' => 'btn btn-primary mt-2']
+            );
+        }
+
+        return new result($status, get_string('check_dbschema_errors', 'report_performance'), $details);
+    }
+
+    /**
+     * Gets the highest status found in the database schema issues
+     *
+     * @param array $issues Database schema issues
+     * @return string Higest status
+     */
+    public function get_status(array $issues): string {
+        $statuses = [];
+        foreach ($issues as $issue) {
+            $statuses[] = $issue->get_status();
+        }
+        return result::get_highest_status($statuses) ?? result::ERROR;
+    }
+
+    /**
+     * Renders a html table of database schema issues
+     *
+     * @param array $issues Database schema issues
+     * @return string html table
+     */
+    public function get_table(array $issues): string {
+        global $OUTPUT;
+
+        $table = new \html_table();
+        $table->data = [];
+        $table->head = [
+            get_string('table', 'tool_xmldb'),
+            get_string('status'),
+            get_string('issue', 'report_performance'),
+            get_string('fix', 'report_performance'),
+            get_string('summary'),
+        ];
+        $table->id = 'dbschema_table';
+        $table->attributes = ['class' => 'admintable generaltable table-sm'];
+
+        $prevtable = '';
+        foreach ($issues as $issue) {
+            $tablename = $issue->table->getName();
+            $newtable = $tablename != $prevtable;
+            if ($newtable) {
+                $name = new \html_table_cell($tablename);
+                $name->rowspan = schema_manager::count_table_issues($tablename, $issues);
+                $prevtable = $tablename;
+            }
+
+            // If a column has multiple issues, increase rowspan to connect the common attributes.
+            $result = new \html_table_cell($OUTPUT->check_result(new result($issue->get_status(), '', '')));
+            $result->attributes['class'] = 'status';
+            $result->rowspan = $issue->count;
+
+            $class = new \html_table_cell($issue::KEY);
+            $class->rowspan = $issue->count;
+
+            $safety = new \html_table_cell($issue->get_safety());
+            $safety->rowspan = $issue->count;
+
+            $messages = $issue->get_messages();
+            foreach ($messages as $i => $message) {
+                $row = [];
+                if ($i == 0) {
+                    if ($newtable) {
+                        $row[] = $name;
+                    }
+                    $row[] = $result;
+                    $row[] = $class;
+                    $row[] = $safety;
+                }
+                $row[] = $message;
+                $table->data[] = $row;
             }
         }
-        return new result(result::ERROR, get_string('check_dbschema_errors', 'report_performance'), $details);
+
+        return \html_writer::table($table);
     }
 }
 

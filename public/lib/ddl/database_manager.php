@@ -26,6 +26,8 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+use core\check\result;
+
 /**
  * Database manager instance is responsible for all database structure modifications.
  *
@@ -38,6 +40,30 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class database_manager {
+
+    /** @var string Resolving schema issue is safe */
+    public const SAFE = 'safe';
+
+    /** @var string Resolving schema issue depends on column data */
+    public const RISKY = 'risky';
+
+    /** @var string Resolving schema issue will cause data loss */
+    public const UNSAFE = 'unsafe';
+
+    /** @var string Resolving schema issue will drop an index */
+    public const DBINDEX = 'dbindex';
+
+    /** @var string Cannot resolve schema issue */
+    public const UNFIXABLE = 'unfixable';
+
+    /** @var array Safety levels of schema issues */
+    public const SAFETY_LEVEL = [
+        self::SAFE         => 0,
+        self::DBINDEX      => 1,
+        self::RISKY        => 2,
+        self::UNSAFE       => 3,
+        self::UNFIXABLE => 4,
+    ];
 
     /** @var moodle_database A moodle_database driver specific instance.*/
     protected $mdb;
@@ -924,9 +950,11 @@ class database_manager {
     /**
      * Reads the install.xml files for Moodle core and modules and returns an array of
      * xmldb_structure object with xmldb_table from these files.
+     * @param array|null $limittables limits the schema to tables in the list
+     * @param array|null $excludetables excludes tables in the list from the schema
      * @return xmldb_structure schema from install.xml files
      */
-    public function get_install_xml_schema() {
+    public function get_install_xml_schema(?array $limittables = null, ?array $excludetables = null) {
         global $CFG;
         require_once($CFG->libdir.'/adminlib.php');
 
@@ -941,6 +969,12 @@ class database_manager {
             $structure = $xmldb_file->getStructure();
             $tables = $structure->getTables();
             foreach ($tables as $table) {
+                if (isset($limittables) && !in_array($table->getName(), $limittables)) {
+                    continue;
+                }
+                if (isset($excludetables) && in_array($table->getName(), $excludetables)) {
+                    continue;
+                }
                 $table->setPrevious(null);
                 $table->setNext(null);
                 $schema->addTable($table);
@@ -953,9 +987,10 @@ class database_manager {
      * Checks the database schema against a schema specified by an xmldb_structure object
      * @param xmldb_structure $schema export schema describing all known tables
      * @param array $options
+     * @param bool $fulldetails return table name with full details instead of only a description
      * @return array keyed by table name with array of difference messages as values
      */
-    public function check_database_schema(xmldb_structure $schema, ?array $options = null) {
+    public function check_database_schema(xmldb_structure $schema, ?array $options = null, bool $fulldetails = false) {
         $alloptions = array(
             'extratables' => true,
             'missingtables' => true,
@@ -996,7 +1031,13 @@ class database_manager {
             if ($options['missingtables']) {
                 // Missing tables are a fatal problem.
                 if (empty($dbtables[$tablename])) {
-                    $errors[$tablename][] = "table is missing";
+                    $errors[$tablename][] = (object) [
+                        'desc' => 'table is missing',
+                        'type' => 'missingtables',
+                        'table' => $table,
+                        'status' => result::ERROR,
+                        'safety' => self::SAFE,
+                    ];
                     continue;
                 }
             }
@@ -1012,13 +1053,29 @@ class database_manager {
                 if (empty($dbfields[$fieldname])) {
                     if ($options['missingcolumns']) {
                         // Missing columns are a fatal problem.
-                        $errors[$tablename][] = "column '$fieldname' is missing";
+                        $canfix = $this->can_add_column_safely($table, $field);
+                        $warn = $canfix ? '' : ', it cannot be added as the column has no default and does not allow nulls';
+                        $errors[$tablename][] = (object) [
+                            'desc' => "column '$fieldname' is missing" . $warn,
+                            'type' => 'missingcolumns',
+                            'field' => $field,
+                            'status' => result::ERROR,
+                            'safety' => $canfix ? self::SAFE : self::UNFIXABLE,
+                        ];
                     }
                 } else if ($options['changedcolumns']) {
                     $dbfield = $dbfields[$fieldname];
 
                     if (!isset($typesmap[$dbfield->meta_type])) {
-                        $errors[$tablename][] = "column '$fieldname' has unsupported type '$dbfield->meta_type'";
+                        $errors[$tablename][] = (object) [
+                            'desc' => "column '$fieldname' has unsupported type '$dbfield->meta_type'",
+                            'type' => 'changedcolumns',
+                            'issue' => 'type',
+                            'field' => $field,
+                            'dbfield' => $dbfield,
+                            'status' => result::WARNING,
+                            'safety' => self::RISKY,
+                        ];
                     } else {
                         $dbtype = $typesmap[$dbfield->meta_type];
                         $type = $field->getType();
@@ -1027,16 +1084,48 @@ class database_manager {
                         }
                         if ($type != $dbtype) {
                             if ($expected = array_search($type, $typesmap)) {
-                                $errors[$tablename][] = "column '$fieldname' has incorrect type '$dbfield->meta_type', expected '$expected'";
+                                $errors[$tablename][] = (object) [
+                                    'desc' => "column '$fieldname' has incorrect type '$dbfield->meta_type', expected '$expected'",
+                                    'type' => 'changedcolumns',
+                                    'issue' => 'type',
+                                    'field' => $field,
+                                    'dbfield' => $dbfield,
+                                    'status' => result::WARNING,
+                                    'safety' => $type == XMLDB_TYPE_TEXT ? self::SAFE : self::RISKY,
+                                ];
                             } else {
-                                $errors[$tablename][] = "column '$fieldname' has incorrect type '$dbfield->meta_type'";
+                                $errors[$tablename][] = (object) [
+                                    'desc' => "column '$fieldname' has incorrect type '$dbfield->meta_type'",
+                                    'type' => 'changedcolumns',
+                                    'issue' => 'type',
+                                    'field' => $field,
+                                    'dbfield' => $dbfield,
+                                    'status' => result::WARNING,
+                                    'safety' => $type == XMLDB_TYPE_TEXT ? self::SAFE : self::RISKY,
+                                ];
                             }
                         } else {
                             if ($field->getNotNull() != $dbfield->not_null) {
                                 if ($field->getNotNull()) {
-                                    $errors[$tablename][] = "column '$fieldname' should be NOT NULL ($dbfield->meta_type)";
+                                    $errors[$tablename][] = (object) [
+                                        'desc' => "column '$fieldname' should be NOT NULL ($dbfield->meta_type)",
+                                        'type' => 'changedcolumns',
+                                        'issue' => 'null',
+                                        'field' => $field,
+                                        'dbfield' => $dbfield,
+                                        'status' => result::WARNING,
+                                        'safety' => self::RISKY,
+                                    ];
                                 } else {
-                                    $errors[$tablename][] = "column '$fieldname' should allow NULL ($dbfield->meta_type)";
+                                    $errors[$tablename][] = (object) [
+                                        'desc' => "column '$fieldname' should allow NULL ($dbfield->meta_type)",
+                                        'type' => 'changedcolumns',
+                                        'issue' => 'null',
+                                        'field' => $field,
+                                        'dbfield' => $dbfield,
+                                        'status' => result::WARNING,
+                                        'safety' => self::SAFE,
+                                    ];
                                 }
                             }
                             switch ($dbtype) {
@@ -1052,16 +1141,38 @@ class database_manager {
                                     if ($field->getType() != XMLDB_TYPE_FLOAT && ($lengthmismatch || $decimalmismatch)) {
                                         $size = "({$field->getLength()},{$field->getDecimals()})";
                                         $dbsize = "($dbfield->max_length,$dbfield->scale)";
-                                        $errors[$tablename][] = "column '$fieldname' size is $dbsize,".
-                                            " expected $size ($dbfield->meta_type)";
+                                        $safety = self::SAFE;
+                                        if ($field->getDecimals() < $dbfield->scale) {
+                                            $safety = self::UNSAFE;
+                                        } else if ($field->getLength() < $dbfield->max_length ||
+                                                $field->getDecimals() > $dbfield->scale) {
+                                            $safety = self::RISKY;
+                                        }
+                                        $errors[$tablename][] = (object) [
+                                            'desc' => "column '$fieldname' size is $dbsize, expected $size ($dbfield->meta_type)",
+                                            'type' => 'changedcolumns',
+                                            'issue' => 'length',
+                                            'field' => $field,
+                                            'dbfield' => $dbfield,
+                                            'status' => result::WARNING,
+                                            'safety' => $safety,
+                                        ];
                                     }
                                     break;
 
                                 case XMLDB_TYPE_CHAR:
                                     // This is not critical, but they should ideally match.
                                     if ($field->getLength() != $dbfield->max_length) {
-                                        $errors[$tablename][] = "column '$fieldname' length is $dbfield->max_length,".
-                                            " expected {$field->getLength()} ($dbfield->meta_type)";
+                                        $errors[$tablename][] = (object) [
+                                            'desc' => "column '$fieldname' length is $dbfield->max_length, " .
+                                                "expected {$field->getLength()} ($dbfield->meta_type)",
+                                            'type' => 'changedcolumns',
+                                            'issue' => 'length',
+                                            'field' => $field,
+                                            'dbfield' => $dbfield,
+                                            'status' => result::WARNING,
+                                            'safety' => $field->getLength() > $dbfield->max_length ? self::SAFE : self::RISKY,
+                                        ];
                                     }
                                     break;
 
@@ -1073,33 +1184,85 @@ class database_manager {
                                         $length = 18;
                                     }
                                     if ($length > $dbfield->max_length) {
-                                        $errors[$tablename][] = "column '$fieldname' length is $dbfield->max_length,".
-                                            " expected at least {$field->getLength()} ($dbfield->meta_type)";
+                                        $errors[$tablename][] = (object) [
+                                            'desc' => "column '$fieldname' length is $dbfield->max_length, " .
+                                                "expected at least {$field->getLength()} ($dbfield->meta_type)",
+                                            'type' => 'changedcolumns',
+                                            'issue' => 'length',
+                                            'field' => $field,
+                                            'dbfield' => $dbfield,
+                                            'status' => result::WARNING,
+                                            'safety' => self::SAFE,
+                                        ];
                                     }
                                     break;
 
                                 case XMLDB_TYPE_TIMESTAMP:
-                                    $errors[$tablename][] = "column '$fieldname' is a timestamp,".
-                                        " this type is not supported ($dbfield->meta_type)";
+                                    $errors[$tablename][] = (object) [
+                                        'desc' => "column '$fieldname' is a timestamp, this type is not supported " .
+                                            "($dbfield->meta_type)",
+                                        'type' => 'changedcolumns',
+                                        'issue' => 'type',
+                                        'field' => $field,
+                                        'dbfield' => $dbfield,
+                                        'status' => result::WARNING,
+                                        'safety' => self::RISKY,
+                                    ];
                                     continue 2;
 
                                 case XMLDB_TYPE_DATETIME:
-                                    $errors[$tablename][] = "column '$fieldname' is a datetime,".
-                                        "this type is not supported ($dbfield->meta_type)";
+                                    $errors[$tablename][] = (object) [
+                                        'desc' => "column '$fieldname' is a datetime, this type is not supported " .
+                                            "($dbfield->meta_type)",
+                                        'type' => 'changedcolumns',
+                                        'issue' => 'type',
+                                        'field' => $field,
+                                        'dbfield' => $dbfield,
+                                        'status' => result::WARNING,
+                                        'safety' => self::RISKY,
+                                    ];
                                     continue 2;
 
                                 default:
                                     // Report all other unsupported types as problems.
-                                    $errors[$tablename][] = "column '$fieldname' has unknown type ($dbfield->meta_type)";
+                                    $errors[$tablename][] = (object) [
+                                        'desc' => "column '$fieldname' has unknown type ($dbfield->meta_type)",
+                                        'type' => 'changedcolumns',
+                                        'issue' => 'type',
+                                        'field' => $field,
+                                        'dbfield' => $dbfield,
+                                        'status' => result::WARNING,
+                                        'safety' => self::RISKY,
+                                    ];
                                     continue 2;
 
                             }
 
                             // Note: The empty string defaults are a bit messy...
-                            if ($field->getDefault() != $dbfield->default_value) {
-                                $default = is_null($field->getDefault()) ? 'NULL' : $field->getDefault();
-                                $dbdefault = is_null($dbfield->default_value) ? 'NULL' : $dbfield->default_value;
-                                $errors[$tablename][] = "column '$fieldname' has default '$dbdefault', expected '$default' ($dbfield->meta_type)";
+                            $default = $this->generator->getDefault($field);
+                            $dbdefault = $dbfield->has_default ? $dbfield->default_value : null;
+
+                            // We need to cast values for strict comparison of defaults.
+                            if ($type == XMLDB_TYPE_NUMBER) {
+                                $default = $default !== null ? (float) $default : null;
+                                $dbdefault = $dbdefault !== null ? (float) $dbdefault : null;
+                            } else {
+                                $default = $default !== null ? (string) $default : null;
+                            }
+
+                            if ($default !== $dbdefault) {
+                                $default ??= 'NULL';
+                                $dbdefault ??= 'NULL';
+                                $errors[$tablename][] = (object) [
+                                    'desc' => "column '$fieldname' has default '$dbdefault', expected '$default' " .
+                                        "($dbfield->meta_type)",
+                                    'type' => 'changedcolumns',
+                                    'issue' => 'default',
+                                    'field' => $field,
+                                    'dbfield' => $dbfield,
+                                    'status' => result::WARNING,
+                                    'safety' => self::SAFE,
+                                ];
                             }
                         }
                     }
@@ -1120,7 +1283,7 @@ class database_manager {
                         $keyname = $key->getName();
 
                         // Create the interim index.
-                        $index = new xmldb_index('anyname');
+                        $index = new xmldb_index($keyname);
                         $index->setFields($key->getFields());
                         switch ($key->getType()) {
                             case XMLDB_KEY_UNIQUE:
@@ -1132,7 +1295,13 @@ class database_manager {
                                 break;
                         }
                         if (!$this->index_exists($table, $index)) {
-                            $errors[$tablename][] = $this->get_missing_index_error($table, $index, $keyname);
+                            $errors[$tablename][] = (object) [
+                                'desc' => $this->get_missing_index_error($table, $index, $keyname),
+                                'type' => 'missingindexes',
+                                'index' => $index,
+                                'status' => result::WARNING,
+                                'safety' => self::SAFE,
+                            ];
                         } else {
                             $this->remove_index_from_dbindex($dbindexes, $index);
                         }
@@ -1143,7 +1312,13 @@ class database_manager {
                 if ($indexes = $table->getIndexes()) {
                     foreach ($indexes as $index) {
                         if (!$this->index_exists($table, $index)) {
-                            $errors[$tablename][] = $this->get_missing_index_error($table, $index, $index->getName());
+                            $errors[$tablename][] = (object) [
+                                'desc' => $this->get_missing_index_error($table, $index, $index->getName()),
+                                'type' => 'missingindexes',
+                                'index' => $index,
+                                'status' => result::WARNING,
+                                'safety' => self::SAFE,
+                            ];
                         } else {
                             $this->remove_index_from_dbindex($dbindexes, $index);
                         }
@@ -1157,7 +1332,14 @@ class database_manager {
                 // which are not included in install.xml. See search/engine/simpledb/db/install.php.
                 if ($tablename != 'search_simpledb_index') {
                     foreach ($dbindexes as $indexname => $index) {
-                        $errors[$tablename][] = "Unexpected index '$indexname'.";
+                        $indextype = $index['unique'] ? XMLDB_INDEX_UNIQUE : XMLDB_INDEX_NOTUNIQUE;
+                        $errors[$tablename][] = (object) [
+                            'desc' => "Unexpected index '$indexname'",
+                            'type' => 'extraindexes',
+                            'index' => new xmldb_index($indexname, $indextype, $index['columns']),
+                            'status' => result::INFO,
+                            'safety' => self::DBINDEX,
+                        ];
                     }
                 }
             }
@@ -1165,7 +1347,13 @@ class database_manager {
             // Check for extra columns (indicates unsupported hacks) - modify install.xml if you want to pass validation.
             foreach ($dbfields as $fieldname => $dbfield) {
                 if ($options['extracolumns']) {
-                    $errors[$tablename][] = "column '$fieldname' is not expected ($dbfield->meta_type)";
+                    $errors[$tablename][] = (object) [
+                        'desc' => "column '$fieldname' is not expected ($dbfield->meta_type)",
+                        'type' => 'extracolumns',
+                        'field' => new xmldb_field($fieldname),
+                        'status' => result::INFO,
+                        'safety' => self::UNSAFE,
+                    ];
                 }
             }
             unset($dbtables[$tablename]);
@@ -1176,6 +1364,14 @@ class database_manager {
             // If there is no prefix, we can not say if table is ours, sorry.
             if ($this->generator->prefix !== '') {
                 foreach ($dbtables as $tablename => $unused) {
+                    if (isset($options['tables']) && !in_array($tablename, $options['tables'])) {
+                        // Only process tbales in the tables list.
+                        continue;
+                    }
+                    if (isset($options['exclude']) && in_array($tablename, $options['exclude'])) {
+                        // Exclude tables in exclude list.
+                        continue;
+                    }
                     if (strpos($tablename, 'pma_') === 0) {
                         // Ignore phpmyadmin tables.
                         continue;
@@ -1183,12 +1379,26 @@ class database_manager {
                     if (strpos($tablename, 'test') === 0) {
                         // Legacy simple test db tables need to be eventually removed,
                         // report them as problems!
-                        $errors[$tablename][] = "table is not expected (it may be a leftover after Simpletest unit tests)";
+                        $errors[$tablename][] = (object) [
+                            'desc' => 'table is not expected (it may be a leftover after Simpletest unit tests)',
+                            'type' => 'extratables',
+                            'status' => result::INFO,
+                            'safety' => self::SAFE,
+                        ];
                     } else {
-                        $errors[$tablename][] = "table is not expected";
+                        $errors[$tablename][] = (object) [
+                            'desc' => 'table is not expected',
+                            'type' => 'extratables',
+                            'status' => result::INFO,
+                            'safety' => self::UNSAFE,
+                        ];
                     }
                 }
             }
+        }
+
+        if (!$fulldetails) {
+            return array_map(fn($rows) => array_column($rows, 'desc'), $errors);
         }
 
         return $errors;
@@ -1222,5 +1432,711 @@ class database_manager {
                 unset($dbindexes[$key]);
             }
         }
+    }
+
+    /**
+     * Attempts to fix database schema issues based on provided errors and safety levels.
+     *
+     * @param array $errors Set of errors returned by check_database_schema()
+     * @param array $levels Safety levels specifying which types of fixes to attempt
+     * @return int The number of issues that were resolved
+     */
+    public function fix_database_schema(array $errors, array $levels): int {
+        // The error check doesn't use cache, while some transformations do.
+        // Reset cache to make sure we have the latest data.
+        $this->mdb->reset_caches();
+        $count = 0;
+        $count += $this->add_missing_tables($errors, $levels);
+        $count += $this->add_missing_fields($errors, $levels);
+        $count += $this->align_column_definitions($errors, $levels);
+        $count += $this->add_missing_indexes($errors, $levels);
+        $count += $this->drop_extra_indexes($errors, $levels);
+        $count += $this->drop_extra_fields($errors, $levels);
+        $count += $this->drop_extra_tables($errors, $levels);
+        return $count;
+    }
+
+    /**
+     * Filters a list of schema errors by type and safety level.
+     *
+     * @param array $errors Set of errors returned by check_database_schema()
+     * @param string $type The error type
+     * @param array $levels Safety levels specifying which types of fixes to attempt
+     * @return array
+     */
+    public function filter_errors(array $errors, string $type, array $levels): array {
+        return array_filter(array_map(
+            fn(array $group) => array_filter($group, fn($e) =>
+                str_contains($e->type, $type) && in_array($e->safety, $levels)
+            ),
+            $errors,
+        ));
+    }
+
+    /**
+     * Creates all missing tables from the schema.
+     *
+     * @param array $errors Set of errors returned by check_database_schema()
+     * @param array $levels Safety levels specifying which types of fixes to attempt
+     * @return int The number of missing tables that were added
+     */
+    protected function add_missing_tables(array $errors, array $levels): int {
+        $count = 0;
+        $errors = $this->filter_errors($errors, 'missingtables', $levels);
+        foreach ($errors as $tablename => $details) {
+            foreach ($details as $error) {
+                if (!$this->table_exists($error->table)) {
+                    $this->print_cli($tablename, null, 'Creating missing table');
+                    $this->create_table($error->table);
+                    $count++;
+                }
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * Creates all missing fields from the schema.
+     *
+     * @param array $errors Set of errors returned by check_database_schema()
+     * @param array $levels Safety levels specifying which types of fixes to attempt
+     * @return int The number of missing columns that were added
+     */
+    protected function add_missing_fields(array $errors, array $levels): int {
+        $count = 0;
+        $errors = $this->filter_errors($errors, 'missingcolumns', $levels);
+        foreach ($errors as $tablename => $details) {
+            $table = new xmldb_table($tablename);
+            foreach ($details as $error) {
+                if (!$this->field_exists($table, $error->field)) {
+                    $this->print_cli($table, $error->field, 'Creating missing column');
+                    $this->add_field($table, $error->field);
+                    $count++;
+                }
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * Creates all missing indexes from the schema.
+     *
+     * @param array $errors Set of errors returned by check_database_schema()
+     * @param array $levels Safety levels specifying which types of fixes to attempt
+     * @return int The number of missing indexes that were added
+     */
+    protected function add_missing_indexes(array $errors, array $levels): int {
+        $count = 0;
+        $errors = $this->filter_errors($errors, 'missingindexes', $levels);
+        foreach ($errors as $tablename => $details) {
+            $table = new xmldb_table($tablename);
+            foreach ($details as $error) {
+                if (!$this->index_exists($table, $error->index)) {
+                    $name = $error->index->getName();
+                    if ($this->all_index_columns_exist($table, $error->index)) {
+                        $this->print_cli($tablename, null, "Creating missing index $name");
+                        $this->add_index($table, $error->index);
+                        $count++;
+                    } else {
+                        $this->print_cli($tablename, null, "Cannot create missing index $name as columns are missing");
+                    }
+                }
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * Aligns existing database column definitions to match the expected schema.
+     *
+     * @param array $errors Set of errors returned by check_database_schema()
+     * @param array $levels Safety levels specifying which types of fixes to attempt
+     * @return int The number of columns that were aligned
+     */
+    protected function align_column_definitions(array $errors, array $levels): int {
+        $count = 0;
+        if (in_array(self::RISKY, $levels)) {
+            $this->evaluate_risky_errors($errors);
+        }
+        $errors = $this->group_errors_by_column($errors, $levels);
+        foreach ($errors as $tablename => $columns) {
+            $table = new xmldb_table($tablename);
+            foreach ($columns as $error) {
+                if ($this->field_exists($table, $error->field)) {
+                    // Run any data fixes that are required.
+                    if (!empty($error->fixes)) {
+                        $this->fix_column_data_issues($table, $error);
+                    }
+
+                    try {
+                        // Temporarily drop indexes to modify this column.
+                        $indexes = $this->drop_column_indexes($table, $error->field);
+
+                        // Change field types fixes multiple issues at once.
+                        $this->print_cli($table, $error->field, "Updating column to match XMLDB definition");
+                        $this->change_field_type($table, $error->field);
+
+                        // Not all databases change default with field type.
+                        if (in_array('default', $error->issues)) {
+                            $this->change_field_default($table, $error->field);
+                        }
+                        $count += count($error->issues);
+
+                        // Restore dropped indexes.
+                        if ($indexes) {
+                            $this->restore_column_indexes($table, $error->field, $indexes);
+                            $indexes = [];
+                        }
+                    } catch (ddl_change_structure_exception $e) {
+                        $this->print_cli($table, $error->field, $e->getMessage());
+                        if (!empty($indexes)) {
+                            $this->restore_column_indexes($table, $error->field, $indexes);
+                            $indexes = [];
+                        }
+                    }
+                }
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * Removes extra tables that are not included in the schema.
+     *
+     * @param array $errors Set of errors returned by check_database_schema()
+     * @param array $levels Safety levels specifying which types of fixes to attempt
+     * @return int The number of extra tables that were dropped
+     */
+    protected function drop_extra_tables(array $errors, array $levels): int {
+        $count = 0;
+        $errors = $this->filter_errors($errors, 'extratables', $levels);
+        foreach ($errors as $tablename => $details) {
+            $table = new xmldb_table($tablename);
+            if ($this->table_exists($table)) {
+                // There may be edge cases with manual foreign keys.
+                $this->print_cli($table, null, 'Dropping extra table');
+                $this->drop_table($table);
+                $count++;
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * Removes extra fields that are not included in the schema.
+     *
+     * @param array $errors Set of errors returned by check_database_schema()
+     * @param array $levels Safety levels specifying which types of fixes to attempt
+     * @return int The number of extra columns that were dropped
+     */
+    protected function drop_extra_fields(array $errors, array $levels): int {
+        $count = 0;
+        $errors = $this->filter_errors($errors, 'extracolumns', $levels);
+        foreach ($errors as $tablename => $details) {
+            $table = new xmldb_table($tablename);
+            foreach ($details as $error) {
+                if ($this->field_exists($table, $error->field)) {
+                    // There may be edge cases with manual foreign keys.
+                    $this->drop_column_indexes($table, $error->field);
+                    $this->print_cli($table, $error->field, 'Dropping extra column');
+                    $this->drop_field($table, $error->field);
+                    $count++;
+                }
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * Removes extra indexes that are not included in the schema.
+     *
+     * @param array $errors Set of errors returned by check_database_schema()
+     * @param array $levels Safety levels specifying which types of fixes to attempt
+     * @return int The number of extra indexes that were dropped
+     */
+    protected function drop_extra_indexes(array $errors, array $levels): int {
+        $count = 0;
+        $errors = $this->filter_errors($errors, 'extraindexes', $levels);
+        foreach ($errors as $tablename => $details) {
+            $table = new xmldb_table($tablename);
+            foreach ($details as $error) {
+                if ($this->index_exists($table, $error->index)) {
+                    $this->print_cli($table, null, "Dropping extra index {$error->index->getName()}");
+                    $this->drop_index($table, $error->index);
+                    $count++;
+                }
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * Checks whether a field can be added to the table safely
+     *
+     * @param xmldb_table $table
+     * @param xmldb_field $field
+     * @return bool Whether the field can be added safely
+     */
+    protected function can_add_column_safely(xmldb_table $table, xmldb_field $field): bool {
+        global $DB;
+
+        // Adding a column can be risky when the column doesn't allow nulls and there is no default.
+        if (!$field->getNotNull() || $this->generator->getDefault($field) !== null) {
+            return true;
+        }
+
+        // A column can still be added safely if there are no records. This should be quick to check.
+        return !$DB->record_exists($table->getName(), []);
+    }
+
+    /**
+     * Checks whether all columns for this index already exist
+     *
+     * @param xmldb_table $table
+     * @param xmldb_index $index
+     * @return bool whether all columns for this index exist
+     */
+    protected function all_index_columns_exist(xmldb_table $table, xmldb_index $index) {
+        foreach ($index->getFields() as $field) {
+            if (!$this->field_exists($table, $field)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Drops indexes for the specified field in the provided table.
+     *
+     * @param xmldb_table $table
+     * @param xmldb_field $field
+     * @return array List of xmldb_index that were dropped
+     */
+    protected function drop_column_indexes(xmldb_table $table, xmldb_field $field): array {
+        $dbindexes = $this->mdb->get_indexes($table->getName());
+        $indexes = [];
+
+        // Get all indexes for this column.
+        foreach ($dbindexes as $indexname => $index) {
+            $columns = $index['columns'];
+            if (in_array($field->getName(), $columns)) {
+                $type = !empty($index['unique']) ? XMLDB_INDEX_UNIQUE : XMLDB_INDEX_NOTUNIQUE;
+                $indexes[] = new xmldb_index($indexname, $type, $columns);
+            }
+        }
+
+        // Drop indexes.
+        foreach ($indexes as $index) {
+            if ($this->index_exists($table, $index)) {
+                $this->print_cli($table, $field, "Dropping index {$index->getname()}");
+                $this->drop_index($table, $index);
+            }
+        }
+        return $indexes;
+    }
+
+    /**
+     * Restores indexes for the specified field in the provided table.
+     *
+     * @param xmldb_table $table
+     * @param xmldb_field $field
+     * @param array $indexes List of xmldb_index to restore
+     * @return void
+     */
+    protected function restore_column_indexes(xmldb_table $table, xmldb_field $field, array $indexes): void {
+        foreach ($indexes as $index) {
+            if (!$this->index_exists($table, $index)) {
+                $this->print_cli($table, $field, "Restoring index {$index->getname()}");
+                $this->add_index($table, $index);
+            }
+        }
+    }
+
+    /**
+     * Groups a set of column alignment errors by column.
+     * These errors are generally processed together to avoid issues with partial alignment.
+     *
+     * @param array $errors Set of errors returned by check_database_schema()
+     * @param array $levels Safety levels specifying which types of fixes to attempt
+     * @return array Set of errors combined by column
+     */
+    protected function group_errors_by_column(array $errors, array $levels): array {
+        // Get all safety levels to start with, and then combine column errors so they are only handled once.
+        $errors = $this->filter_errors($errors, 'changedcolumns', array_keys(self::SAFETY_LEVEL));
+        $columnerrors = [];
+        foreach ($errors as $tablename => $details) {
+            $columns = array_reduce($details, function ($columns, $error) {
+                $column = $error->field->getName();
+                if (!isset($columns[$column])) {
+                    // Most required fields should be the same for each column.
+                    $columns[$column] = clone $error;
+                    unset($columns[$column]->desc, $columns[$column]->issue);
+                }
+
+                // Add new fixes variable.
+                if (!isset($columns[$column]->fixes)) {
+                    $columns[$column]->fixes = [];
+                }
+
+                // Keep the highest safety level.
+                if (self::SAFETY_LEVEL[$error->safety] > self::SAFETY_LEVEL[$columns[$column]->safety]) {
+                    $columns[$column]->safety = $error->safety;
+                }
+
+                // Add all issues to a new field.
+                $columns[$column]->issues[] = $error->issue;
+                return $columns;
+            }, []);
+
+            $columnerrors[$tablename] = $columns;
+        }
+
+        // Now filter by safety level.
+        return $this->filter_errors($columnerrors, 'changedcolumns', $levels);
+    }
+
+    /**
+     * Evaluates errors marked as 'risky' to determine if they are safe or unsafe.
+     * This performs additional queries to check whether the column data fits the schema,
+     * and updates the error safety flag.
+     *
+     * @param array $errors Set of errors returned by check_database_schema()
+     * @return void
+     */
+    public function evaluate_risky_errors(array $errors): void {
+        $columnerrors = $this->group_errors_by_column($errors, [self::RISKY]);
+        foreach ($columnerrors as $tablename => $columns) {
+            $table = new xmldb_table($tablename);
+            foreach ($columns as $error) {
+                $this->check_column_data_issues($table, $error);
+                if ($error->safety === self::SAFE) {
+                    $this->print_cli($tablename, $error->field, "Column is safe to fix");
+                }
+
+                // Update the safety and fixes values of the original errors.
+                if (isset($errors[$tablename])) {
+                    foreach ($errors[$tablename] as $details) {
+                        if ($details->type === 'changedcolumns' && $details->field->getName() === $error->field->getName()) {
+                            $details->safety = $error->safety;
+                            $details->fixes = $error->fixes;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Evalutes the safety level of of aligning a column definition to resolve schema errors.
+     * This checks the column data for errors marked as "risky" and updates the safety level
+     * to "safe", "unsafe" or "unfixable".
+     *
+     * @param xmldb_table $table
+     * @param stdClass $error The schema error details for a specific column
+     * @return void
+     */
+    protected function check_column_data_issues(xmldb_table $table, stdClass $error): void {
+        // We only need to check issues marked as risky.
+        if ($error->safety !== self::RISKY) {
+            return;
+        }
+
+        // Start as safe and raise level as we check.
+        $error->safety = self::SAFE;
+
+        if (in_array('null', $error->issues)) {
+            if ($this->check_null_safety($table, $error) === self::UNFIXABLE) {
+                return;
+            }
+        }
+
+        if (in_array('type', $error->issues)) {
+            if ($this->check_type_safety($table, $error) === self::UNFIXABLE) {
+                return;
+            }
+        }
+
+        // Length check is also required for type changes, so check it for all errors.
+        $this->check_length_safety($table, $error);
+    }
+
+    /**
+     * Evalutes the safety level of making a column not null
+     *
+     * @param xmldb_table $table
+     * @param stdClass $error The schema error details for a specific column
+     * @return void
+     */
+    protected function check_null_safety(xmldb_table $table, stdClass $error): void {
+        global $DB;
+
+        $field = $error->field;
+        if ($field->getNotNull() && !$error->dbfield->not_null) {
+            if ($DB->record_exists_select($table->getName(), "{$field->getName()} IS NULL")) {
+                // Unsafe as we have null values.
+                $this->print_cli($table, $field, "Column is unsafe as it requires nulls to be updated to the default");
+                $error->safety = self::UNSAFE;
+                $error->fixes[] = 'nulldefault';
+            }
+        }
+    }
+
+    /**
+     * Evalutes the safety level of changing the type of a column
+     *
+     * @param xmldb_table $table
+     * @param stdClass $error The schema error details for a specific column
+     * @return void
+     */
+    protected function check_type_safety(xmldb_table $table, stdClass $error): void {
+        global $DB;
+
+        $field = $error->field;
+        $columnname = $field->getName();
+        $type = $field->getType();
+        if ($type == XMLDB_TYPE_FLOAT) {
+            $type = XMLDB_TYPE_NUMBER;
+        }
+
+        // Check for type changes. We can ignore checking TEXT and CHAR as they only depend on length.
+        if ($type != XMLDB_TYPE_TEXT && $type != XMLDB_TYPE_CHAR) {
+            if ($type == XMLDB_TYPE_INTEGER) {
+                // Have to manually check whether all values are integers.
+                $rs = $DB->get_recordset($table->getName(), null, '', $columnname);
+                foreach ($rs as $record) {
+                    if (filter_var($record->$columnname, FILTER_VALIDATE_INT) === false) {
+                        $this->print_cli($table, $field, "Column is unfixable as it contains values that are not integers");
+                        $error->safety = self::UNFIXABLE;
+                        break;
+                    }
+                }
+                $rs->close();
+            } else if ($type == XMLDB_TYPE_NUMBER) {
+                // Have to manually check whether all values are floats.
+                $rs = $DB->get_recordset($table->getName(), null, '', $columnname);
+                foreach ($rs as $record) {
+                    if (!is_numeric($record->$columnname)) {
+                        $this->print_cli($table, $field, "Column is unfixable as it contains values that are not numeric");
+                        $error->safety = self::UNFIXABLE;
+                        break;
+                    }
+                }
+                $rs->close();
+            } else {
+                $this->print_cli($table, $field, "Checks for changing to this type is currently unsupported");
+                $error->safety = self::UNFIXABLE;
+            }
+        }
+    }
+
+    /**
+     * Evalutes the safety level of changing the length of a column
+     *
+     * @param xmldb_table $table
+     * @param stdClass $error The schema error details for a specific column
+     * @return void
+     */
+    protected function check_length_safety(xmldb_table $table, stdClass $error): void {
+        global $DB;
+
+        $field = $error->field;
+        $columnname = $field->getName();
+        $type = $field->getType();
+        if ($type == XMLDB_TYPE_FLOAT) {
+            $type = XMLDB_TYPE_NUMBER;
+        }
+
+        // Schema alignment does not check for decrease in integers, so we ignore them here as well.
+        if ($type == XMLDB_TYPE_TEXT || $type == XMLDB_TYPE_INTEGER) {
+            return;
+        }
+
+        // We only need to check length decreases and increasing decimals.
+        $length = $field->getLength();
+        if ($length >= $error->dbfield->max_length && $type != XMLDB_TYPE_NUMBER) {
+            return;
+        }
+
+        if ($type == XMLDB_TYPE_CHAR) {
+            // Check all values in the column are under the new length limit.
+            if ($DB->record_exists_select($table->getName(), $DB->sql_length($columnname) . ' > ?', [$length])) {
+                $this->print_cli($table, $field, "Column is unsafe as it contains data larger than the new length");
+                $error->safety = self::UNSAFE;
+                $error->fixes[] = 'truncate';
+            }
+        } else if ($type == XMLDB_TYPE_NUMBER) {
+            // Numbers require some extra checks with decimals as well as length.
+            $decimals = $field->getDecimals();
+            if ($decimals < $error->dbfield->scale) {
+                // Decreasing precision changes data. Update safety and continue checking.
+                $this->print_cli($table, $field, "Column is unsafe as it causes a decrease in precision");
+                $error->safety = self::UNSAFE;
+            }
+
+            // We only need to check length decreases and increasing decimals.
+            if ($length >= $error->dbfield->max_length && $decimals <= $error->dbfield->scale) {
+                return;
+            }
+
+            // Float SQL is more complicated across DBs, fall back to checking each value individually.
+            $rs = $DB->get_recordset($table->getName(), null, '', "id,$columnname");
+            $intlength = $length - $decimals;
+            foreach ($rs as $record) {
+                // Split the value into int part and decimals, and then compare.
+                $parts = explode('.', ltrim($record->$columnname, '-'));
+                $intdigits = strlen($parts[0]);
+                $decimaldigits = isset($parts[1]) ? strlen($parts[1]) : 0;
+                if ($intdigits > $intlength) {
+                    $this->print_cli($table, $field, "Column is unfixable as it contains numeric values that do not fit");
+                    $error->safety = self::UNFIXABLE;
+                    break;
+                } else if ($decimaldigits > $decimals && $error->safety === self::SAFE) {
+                    // Decrease in precision.
+                    $this->print_cli($table, $field, "Column is unsafe as it causes a decrease in precision for some data");
+                    $error->safety = self::UNSAFE;
+                }
+            }
+            $rs->close();
+        } else {
+            $this->print_cli($table, $field, "Checks for decreases of this type are not supported");
+            $error->safety = self::UNFIXABLE;
+        }
+    }
+
+    /**
+     * Fixes data issues for a column that are required to resolve schema issues
+     *
+     * @param xmldb_table $table
+     * @param stdClass $error The schema error details for a specific column
+     * @return void
+     */
+    protected function fix_column_data_issues(xmldb_table $table, stdClass $error): void {
+        if (empty($error->fixes)) {
+            return;
+        }
+
+        if (in_array('nulldefault', $error->fixes)) {
+            $this->convert_null_to_default($table, $error->field);
+        }
+
+        if (in_array('truncate', $error->fixes)) {
+            $this->truncate_data($table, $error->field);
+        }
+    }
+
+    /**
+     * Converts all null values to the default of the column
+     *
+     * @param xmldb_table $table
+     * @param xmldb_field $field
+     * @return void
+     */
+    protected function convert_null_to_default(xmldb_table $table, xmldb_field $field): void {
+        global $DB;
+
+        $this->print_cli($table, $field, "Converting null values to default");
+        // Text columns may not have a default, so fall back to a blank string.
+        $default = $this->generator->getDefault($field) ?? '';
+        $DB->set_field_select($table->getName(), $field->getName(), $default, "{$field->getName()} IS NULL");
+    }
+
+    /**
+     * Truncates data to the maximum length of the column
+     *
+     * @param xmldb_table $table
+     * @param xmldb_field $field
+     * @return void
+     */
+    protected function truncate_data(xmldb_table $table, xmldb_field $field): void {
+        global $DB;
+
+        $length = $field->getLength();
+        $columnname = $field->getName();
+        $select = $DB->sql_length($columnname) . ' > ?';
+        $rs = $DB->get_recordset_select($table->getName(), $select, [$length], "id,$columnname");
+
+        $count = 0;
+        foreach ($rs as $record) {
+            $truncated = mb_substr($record->$columnname, 0, $length);
+            $record->$columnname = $truncated;
+            $DB->update_record($table->getName(), $record);
+            $count++;
+        }
+        $rs->close();
+        $this->print_cli($table, $field, "Truncated $count records to $length characters");
+    }
+
+    /**
+     * Prints output for CLI scripts
+     *
+     * @param xmldb_table|string $table
+     * @param xmldb_field|null $field
+     * @param string $message
+     * @return void
+     */
+    protected function print_cli(xmldb_table|string $table, ?xmldb_field $field, string $message): void {
+        if (CLI_SCRIPT && !PHPUNIT_TEST) {
+            $tablename = is_string($table) ? $table : $table->getName();
+            $prefix = " * $tablename";
+            if (isset($field)) {
+                $prefix .= "->{$field->getName()}";
+            }
+            echo "$prefix: $message\n";
+        }
+    }
+
+    /**
+     * Resolves a list of table name patterns into matching table names.
+     *
+     * @param array $patterns List of table name patterns with wildcards
+     * @return array List of matched table names
+     */
+    public function resolve_table_patterns(array $patterns): array {
+        $tables = [];
+        $schematables = $this->get_all_table_names();
+        foreach ($patterns as $pattern) {
+            // Add exact table names as is.
+            if (!str_contains($pattern, '*')) {
+                $tables[] = $pattern;
+                continue;
+            }
+            // Convert wildcard pattern to regex.
+            $regex = '/^' . strtr(preg_quote($pattern, '/'), ['\*' => '.*']) . '$/';
+            foreach ($schematables as $table) {
+                if (preg_match($regex, $table)) {
+                    $tables[] = $table;
+                }
+            }
+        }
+        return $tables;
+    }
+
+    /**
+     * Gets all table names defined in either the schema or the database
+     *
+     * @return array List of table names
+     */
+    protected function get_all_table_names(): array {
+        $tablenames = [];
+
+        // Get table names from the schema.
+        foreach ($this->get_install_xml_files() as $filename) {
+            $file = new xmldb_file($filename);
+            if (!$file->loadXMLStructure()) {
+                continue;
+            }
+            $structure = $file->getStructure();
+            $tables = $structure->getTables();
+            foreach ($tables as $table) {
+                $tablenames[] = $table->getName();
+            }
+        }
+
+        // Get table names from the database.
+        foreach ($this->mdb->get_tables(false) as $tablename) {
+            $tablenames[] = $tablename;
+        }
+
+        return array_unique($tablenames);
     }
 }

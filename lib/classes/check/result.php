@@ -84,6 +84,19 @@ class result implements \renderable {
     const CRITICAL = 'critical';
 
     /**
+     * @var array Map check result to specific ordering
+     */
+    public const RESULT_ORDER = [
+        self::NA       => 0,
+        self::INFO     => 1,
+        self::OK       => 2,
+        self::WARNING  => 3,
+        self::UNKNOWN  => 4,
+        self::ERROR    => 5,
+        self::CRITICAL => 6,
+    ];
+
+    /**
      * @var string $status - status
      */
     protected $status = self::UNKNOWN;
@@ -139,6 +152,24 @@ class result implements \renderable {
         return $this->details;
     }
 
+    /**
+     * Returns the highest severity status from an array of statuses.
+     * @param string[] $statuses
+     * @return string|null highest severity status
+     */
+    public static function get_highest_status(array $statuses): ?string {
+        $highest = null;
+        foreach ($statuses as $status) {
+            if (!isset(self::RESULT_ORDER[$status])) {
+                continue;
+            }
+
+            if (!isset($highest) || self::RESULT_ORDER[$status] > self::RESULT_ORDER[$highest]) {
+                $highest = $status;
+            }
+        }
+        return $highest;
+    }
     /**
      * Export this data so it can be used as the context for a mustache template.
      *

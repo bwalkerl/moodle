@@ -32,6 +32,7 @@ $string['check_cachejs_details'] = 'Javascript caching and compression greatly i
 $string['check_dbschema_name'] = 'Database schema check';
 $string['check_dbschema_ok'] = 'Database schema is correct.';
 $string['check_dbschema_errors'] = 'Database schema is not aligned.';
+$string['check_dbschema_risky'] = 'Check risky updates';
 $string['check_debugmsg_comment_nodeveloper'] = 'If set to DEVELOPER, performance may be affected slightly.';
 $string['check_debugmsg_comment_developer'] = 'If set to a value other than DEVELOPER, performance may be improved slightly.';
 $string['check_debugmsg_details'] = 'There is rarely any advantage in going to Developer level, unless requested by a developer.<p>Once you have obtained the error message, and copied and pasted it somewhere, it is HIGHLY RECOMMENDED to turn Debug back to NONE. Debug messages can give clues to a hacker as to the setup of your site and may affect performance.</p>';

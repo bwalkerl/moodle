@@ -597,12 +597,12 @@ class cachestore_redis extends store implements
     public function purge() {
         if ($this->definition->get_ttl()) {
             // Purge the TTL list as well.
-            $this->redis->del($this->hash . self::TTL_SUFFIX);
-            // According to documentation, there is no error return for the 'del' command (it
+            $this->redis->unlink($this->hash . self::TTL_SUFFIX);
+            // According to documentation, there is no error return for the 'unlink' command (it
             // only returns the number of keys deleted, which could be 0 or 1 in this case) so we
             // do not need to check the return value.
         }
-        return ($this->redis->del($this->hash) !== false);
+        return ($this->redis->unlink($this->hash) !== false);
     }
 
     /**
@@ -772,7 +772,7 @@ class cachestore_redis extends store implements
     public function release_lock($key, $ownerid) {
         if ($this->check_lock_state($key, $ownerid)) {
             unset($this->currentlocks[$key]);
-            return ($this->redis->del($key) !== false);
+            return ($this->redis->unlink($key) !== false);
         }
         return false;
     }

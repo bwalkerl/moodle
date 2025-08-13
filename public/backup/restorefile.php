@@ -203,6 +203,11 @@ if (!empty($automatedbackups)) {
     echo $renderer->backup_files_viewer($treeviewoptions);
 }
 
+// Let plugins add custom backup areas with a hook.
+$hook = new \core_backup\hook\extend_restore_backup_areas($renderer);
+core\di::get(core\hook\manager::class)->dispatch($hook);
+echo $hook->get_output();
+
 // In progress course restores.
 if (async_helper::is_async_enabled()) {
     echo $OUTPUT->heading_with_help(

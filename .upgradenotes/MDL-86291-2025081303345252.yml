@@ -1,0 +1,7 @@
+issueNumber: MDL-86291
+notes:
+  core_backup:
+    - message: >-
+        Added a new hook to extend the backup areas displayed on the restorefile
+        page.
+      type: improved

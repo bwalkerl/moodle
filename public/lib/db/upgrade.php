@@ -2190,5 +2190,20 @@ function xmldb_main_upgrade($oldversion) {
         upgrade_main_savepoint(true, 2025090200.02);
     }
 
+    if ($oldversion < 2025091600.01) {
+
+        // Define index nextruntime_classname (not unique) to be added to task_adhoc.
+        $table = new xmldb_table('task_adhoc');
+        $index = new xmldb_index('nextruntime_classname', XMLDB_INDEX_NOTUNIQUE, ['nextruntime', 'classname']);
+
+        // Conditionally launch add index nextruntime_classname.
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        // Main savepoint reached.
+        upgrade_main_savepoint(true, 2025091600.01);
+    }
+
     return true;
 }

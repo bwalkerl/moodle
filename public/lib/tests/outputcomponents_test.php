@@ -423,6 +423,70 @@ EOF;
         $this->assertNotSame($parseddedu, $parsedde, 'The German [Du] menu is the same as the German menu. They should differ!');
     }
 
+
+    /**
+     * Tests the view conditions for custom menu items.
+     */
+    public function test_custommenu_conditions(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        // Create a user and log them in.
+        $user = $this->getDataGenerator()->create_user();
+        $this->setUser($user);
+        $context = \context_system::instance();
+
+        // Create a role and a cohort for testing.
+        $role = 'tester';
+        $roleid = $this->getDataGenerator()->create_role(['shortname' => $role]);
+        $cohortname = 'cohortA';
+        $cohort = $this->getDataGenerator()->create_cohort(['idnumber' => $cohortname]);
+
+        // Known capability.
+        $capability = 'moodle/site:config';
+        $this->assertTrue($DB->record_exists('capabilities', ['name' => $capability]));
+
+        // Define a menu with individual and combined conditions (5th param = view conditions).
+        $definition = <<<EOF
+nocondition|#
+cohort|#|||cohort=$cohortname
+-cohortchild|#
+role|#|||role=$role
+-rolechild|#
+capability|#|||capability=$capability
+-capabilitychild|#
+capability+cohort|#|||capability=$capability&cohort=$cohortname
+capability+role|#|||capability=$capability&role=$role
+cohort+role|#|||cohort=$cohortname&role=$role
+capability+cohort+role|#|||capability=$capability&cohort=$cohortname&role=$role
+EOF;
+
+        // Start with no conditions.
+        $items = $this->custommenu_text(new custom_menu($definition));
+        $expected = ['nocondition'];
+        $this->assertSame($expected, $items);
+
+        // Add to cohort.
+        cohort_add_member($cohort->id, $user->id);
+        $items = $this->custommenu_text(new custom_menu($definition));
+        $expected = ['nocondition', 'cohort', 'cohortchild'];
+        $this->assertSame($expected, $items);
+
+        // Assign role.
+        role_assign($roleid, $user->id, $context->id);
+        $items = $this->custommenu_text(new custom_menu($definition));
+        $expected = ['nocondition', 'cohort', 'cohortchild', 'role', 'rolechild', 'cohort+role'];
+        $this->assertSame($expected, $items);
+
+        // Assign capability.
+        assign_capability($capability, CAP_ALLOW, $roleid, $context);
+        $items = $this->custommenu_text(new custom_menu($definition));
+        $expected = ['nocondition', 'cohort', 'cohortchild', 'role', 'rolechild', 'capability', 'capabilitychild',
+            'capability+cohort', 'capability+role',  'cohort+role', 'capability+cohort+role'];
+        $this->assertSame($expected, $items);
+    }
+
     /**
      * Support function that takes a custom_menu_item and converts it to a string.
      *
@@ -442,6 +506,24 @@ EOF;
             }
         }
         return $str;
+    }
+
+
+    /**
+     * Support function that takes a custom_menu_item and returns all text, including children.
+     *
+     * @param custom_menu_item $item
+     * @return string
+     */
+    protected function custommenu_text(custom_menu_item $item): array {
+        $names = [];
+        foreach ($item->get_children() as $child) {
+            $names[] = $child->get_text();
+
+            // Recursively add all descendants.
+            $names = array_merge($names, $this->custommenu_text($child));
+        }
+        return $names;
     }
 
     public function test_prepare(): void {

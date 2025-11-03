@@ -75,7 +75,7 @@ class custom_menu extends custom_menu_item {
      * then be added to a custom menu.
      *
      * Structure:
-     *     text|url|title|langs
+     *     text|url|title|langs|conditions
      * The number of hyphens at the start determines the depth of the item. The
      * languages are optional, comma separated list of languages the line is for.
      *
@@ -138,6 +138,11 @@ class custom_menu extends custom_menu_item {
                                 $itemvisible &= in_array($language, $itemlanguages);
                             }
                             break;
+                        case 4: // View conditions.
+                            if (!self::can_view_menu_item($setting)) {
+                                $itemvisible = false;
+                            }
+                            break;
                     }
                 }
             }
@@ -159,6 +164,56 @@ class custom_menu extends custom_menu_item {
             $item->parent->remove_child($item);
         }
         return $root->get_children();
+    }
+
+    /**
+     * Checks whether a user meets the conditions to view a menu item.
+     *
+     * @param string $conditions
+     * @return bool
+     */
+    private static function can_view_menu_item(string $conditions): bool {
+        global $CFG, $DB, $USER;
+
+        $cache = new \navigation_cache('custom_menu');
+        $key = md5($conditions);
+        if ($cache->cached($key)) {
+            return $cache->$key;
+        }
+
+        $params = [];
+        parse_str($conditions, $params);
+        if (isset($params['capability'])) {
+            $context = \core\context\system::instance();
+            $capabilityexists = $DB->record_exists('capabilities', [
+                'name' => $params['capability'],
+                'contextlevel' => $context->contextlevel,
+            ]);
+            if (!$capabilityexists || !has_capability($params['capability'], $context)) {
+                $cache->set($key, false);
+                return false;
+            }
+        }
+
+        if (isset($params['cohort'])) {
+            require_once("$CFG->dirroot/cohort/lib.php");
+            $cohortid = $DB->get_field('cohort', 'id', ['idnumber' => $params['cohort']], IGNORE_MISSING);
+            if (!$cohortid || !cohort_is_member($cohortid, $USER->id)) {
+                $cache->set($key, false);
+                return false;
+            }
+        }
+
+        if (isset($params['role'])) {
+            $roleid = $DB->get_field('role', 'id', ['shortname' => $params['role']], IGNORE_MISSING);
+            if (!$roleid || !user_has_role_assignment($USER->id, $roleid)) {
+                $cache->set($key, false);
+                return false;
+            }
+        }
+
+        $cache->set($key, true);
+        return true;
     }
 
     /**

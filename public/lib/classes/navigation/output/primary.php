@@ -56,9 +56,11 @@ class primary implements renderable, templatable {
             $output = $this->page->get_renderer('core');
         }
 
-        $menudata = (object) $this->merge_primary_and_custom($this->get_primary_nav(), $this->get_custom_menu($output));
+        $primarynav = $this->get_primary_nav();
+        $custommenu = $this->get_custom_menu($output);
+        $menudata = (object) $this->merge_primary_and_custom($primarynav, $custommenu);
         $moremenu = new \core\navigation\output\more_menu($menudata, 'navbar-nav', false);
-        $mobileprimarynav = $this->merge_primary_and_custom($this->get_primary_nav(), $this->get_custom_menu($output), true);
+        $mobileprimarynav = $this->merge_primary_and_custom($primarynav, $custommenu, true);
 
         $languagemenu = new \core\output\language_menu($this->page);
 

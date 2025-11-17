@@ -530,7 +530,7 @@ class pgsql_native_moodle_database extends moodle_database {
                 if (!preg_match('/CREATE (|UNIQUE )INDEX ([^\s]+) ON (|'.$row['schemaname'].'\.)'.$tablename.' USING ([^\s]+) \(([^\)]+)\)/i', $row['indexdef'], $matches)) {
                     continue;
                 }
-                if ($matches[5] === 'id') {
+                if ($matches[5] === 'id' && str_ends_with($matches[2], '_pk')) {
                     continue;
                 }
                 $columns = explode(',', $matches[5]);

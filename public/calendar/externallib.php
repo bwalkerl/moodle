@@ -271,15 +271,22 @@ class core_calendar_external extends external_api {
                     $categories = array_flip($categories);
                 } else {
                     $categories = [];
-                    foreach (\core_course_category::get_all() as $category) {
-                        if (isset($coursecategories[$category->id]) ||
-                                has_capability('moodle/category:manage', $category->get_context(), $USER, false)) {
-                            // If the user has access to a course in this category or can manage the category,
-                            // then they can see all parent categories too.
-                            $categories[$category->id] = true;
-                            foreach ($category->get_parents() as $catid) {
-                                $categories[$catid] = true;
-                            }
+
+                    // Find categories the user can manage.
+                    [$managecategories] = get_user_capability_contexts('moodle/category:manage', true, $USER->id, false);
+
+                    // Combine IDs from the courses and manageable categories.
+                    $categoryids = array_unique(array_merge(
+                        array_keys($coursecategories),
+                        array_map(fn($category) => $category->id, $managecategories ?: [])
+                    ));
+
+                    foreach (\core_course_category::get_many($categoryids) as $category) {
+                        // If the user has access to a course in this category or can manage the category,
+                        // then they can see all parent categories too.
+                        $categories[$category->id] = true;
+                        foreach ($category->get_parents() as $catid) {
+                            $categories[$catid] = true;
                         }
                     }
                     $funcparam['categories'] = array_keys($categories);

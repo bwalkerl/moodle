@@ -1231,26 +1231,27 @@ class calendar_information {
         } else if (SITEID === $this->courseid) {
             // The site was requested.
             // Fetch all categories where this user has any enrolment, and all categories that this user can manage.
-
-            // Grab the list of categories that this user has courses in.
-            $coursecategories = array_flip(array_map(function($course) {
-                return $course->category;
-            }, $courses));
-
             $calcatcache = cache::make('core', 'calendar_categories');
             $this->categories = $calcatcache->get('site');
             if ($this->categories === false) {
                 // Use the category id as the key in the following array. That way we do not have to remove duplicates.
                 $categories = [];
-                foreach (\core_course_category::get_all() as $category) {
-                    if (isset($coursecategories[$category->id]) ||
-                            has_capability('moodle/category:manage', $category->get_context(), $USER, false)) {
-                        // If the user has access to a course in this category or can manage the category,
-                        // then they can see all parent categories too.
-                        $categories[$category->id] = true;
-                        foreach ($category->get_parents() as $catid) {
-                            $categories[$catid] = true;
-                        }
+
+                // Find categories the user can manage.
+                [$managecategories] = get_user_capability_contexts('moodle/category:manage', true, $USER->id, false);
+
+                // Combine IDs from the courses and manageable categories.
+                $categoryids = array_unique(array_merge(
+                    array_map(fn($course) => $course->category, $courses),
+                    array_map(fn($category) => $category->id, $managecategories ?: [])
+                ));
+
+                foreach (\core_course_category::get_many($categoryids) as $category) {
+                    // If the user has access to a course in this category or can manage the category,
+                    // then they can see all parent categories too.
+                    $categories[$category->id] = true;
+                    foreach ($category->get_parents() as $catid) {
+                        $categories[$catid] = true;
                     }
                 }
                 $this->categories = array_keys($categories);

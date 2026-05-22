@@ -242,5 +242,59 @@ function xmldb_assign_upgrade($oldversion) {
     // Automatically generated Moodle v5.2.0 release upgrade line.
     // Put any upgrade step following this.
 
+    if ($oldversion < 2026042004) {
+
+        // Define field optionalmarkercount to be added to assign.
+        $table = new xmldb_table('assign');
+        $field = new xmldb_field('optionalmarkercount', XMLDB_TYPE_INTEGER, '2', null, XMLDB_NOTNULL, null, '0', 'markercount');
+
+        // Conditionally launch add field optionalmarkercount.
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Define field slot to be added to assign_allocated_marker.
+        $table = new xmldb_table('assign_allocated_marker');
+        $field = new xmldb_field('slot', XMLDB_TYPE_INTEGER, '2', null, null, null, null, 'marker');
+
+        // Conditionally launch add field slot.
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Add slot numbers for existing records.
+        $recordset = $DB->get_recordset('assign_allocated_marker', null, 'assignment, student, id');
+
+        $slot = 1;
+        $prevkey = null;
+        foreach ($recordset as $record) {
+            $key = $record->assignment . '-' . $record->student;
+            if ($key !== $prevkey) {
+                $slot = 1;
+                $prevkey = $key;
+            }
+            $DB->set_field('assign_allocated_marker', 'slot', $slot, ['id' => $record->id]);
+            $slot++;
+        }
+        $recordset->close();
+
+        // Update nullability of slot field after migrating values.
+        $field = new xmldb_field('slot', XMLDB_TYPE_INTEGER, '2', null, XMLDB_NOTNULL, null, null, 'marker');
+        $dbman->change_field_notnull($table, $field);
+
+
+        // Define field optional to be added to assign_allocated_marker.
+        $table = new xmldb_table('assign_allocated_marker');
+        $field = new xmldb_field('enabled', XMLDB_TYPE_INTEGER, '1', null, null, null, null, 'slot');
+
+        // Conditionally launch add field reason.
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Assign savepoint reached.
+        upgrade_mod_savepoint(true, 2026042004, 'assign');
+    }
+
     return true;
 }

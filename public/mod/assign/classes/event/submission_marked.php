@@ -14,33 +14,22 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * The mod_assign submission graded event.
- *
- * @package    mod_assign
- * @copyright  2013 Frédéric Massart
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
 namespace mod_assign\event;
 
-defined('MOODLE_INTERNAL') || die();
+use assign;
+use coding_exception;
+use stdClass;
 
 /**
- * The mod_assign submission graded event class.
- *
- * @property-read array $other {
- *      Extra information about event.
- *
- *      - bool calculated: (optional) true if grade was dertived automatically.
- * }
+ * The mod_assign submission marked event class.
  *
  * @package    mod_assign
- * @since      Moodle 2.6
- * @copyright  2013 Frédéric Massart
+ * @since      Moodle 5.3
+ * @copyright  2026 Catalyst IT Australia Pty Ltd
+ * @author     Benjamin Walker <benjaminwalker@catalyst-au.net>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class submission_graded extends base {
+class submission_marked extends base {
     /**
      * Flag for prevention of direct create() call.
      * @var bool
@@ -50,32 +39,24 @@ class submission_graded extends base {
     /**
      * Create instance of event.
      *
-     * @since Moodle 2.7
-     *
-     * @param \assign $assign
-     * @param \stdClass $grade
-     * @return submission_graded
+     * @param assign $assign
+     * @param stdClass $grade
+     * @param stdClass $mark
+     * @return submission_marked
      */
-    public static function create_from_grade(\assign $assign, \stdClass $grade) {
-        $data = array(
+    public static function create_from_mark(assign $assign, stdClass $grade, stdClass $mark) {
+        $data = [
             'context' => $assign->get_context(),
-            'objectid' => $grade->id,
-            'relateduserid' => $grade->userid,
-        );
-
-        // Add extra context for agreed grades that have been calculated.
-        if ($assign->is_using_multiple_marking() && $grade->grader === -1) {
-            $data['other'] = [
-                'calculated' => true,
-            ];
-        }
-
+            'objectid' => $mark->id,
+            'relateduserid' => $grade->userid
+        ];
         self::$preventcreatecall = false;
-        /** @var submission_graded $event */
+        /** @var submission_marked $event */
         $event = self::create($data);
         self::$preventcreatecall = true;
         $event->set_assign($assign);
         $event->add_record_snapshot('assign_grades', $grade);
+        $event->add_record_snapshot('assign_mark', $mark);
         return $event;
     }
 
@@ -85,8 +66,7 @@ class submission_graded extends base {
      * @return string
      */
     public function get_description() {
-        $action = empty($this->other['calculated']) ? 'has graded the' : 'triggered agreed grade calculation for';
-        return "The user with id '$this->userid' $action submission '$this->objectid' for the user with " .
+        return "The user with id '$this->userid' has marked the submission '$this->objectid' for the user with " .
             "id '$this->relateduserid' for the assignment with course module id '$this->contextinstanceid'.";
     }
 
@@ -96,7 +76,7 @@ class submission_graded extends base {
      * @return string
      */
     public static function get_name() {
-        return get_string('eventsubmissiongraded', 'mod_assign');
+        return get_string('eventsubmissionmarked', 'mod_assign');
     }
 
     /**
@@ -107,28 +87,35 @@ class submission_graded extends base {
     protected function init() {
         $this->data['crud'] = 'u';
         $this->data['edulevel'] = self::LEVEL_TEACHING;
-        $this->data['objecttable'] = 'assign_grades';
+        $this->data['objecttable'] = 'assign_mark';
     }
 
     /**
      * Custom validation.
      *
-     * @throws \coding_exception
+     * @throws coding_exception
      * @return void
      */
     protected function validate_data() {
         if (self::$preventcreatecall) {
-            throw new \coding_exception('cannot call submission_graded::create() directly, use submission_graded::create_from_grade() instead.');
+            throw new coding_exception(
+                'cannot call submission_marked::create() directly, use submission_marked::create_from_mark() instead.',
+            );
         }
 
         parent::validate_data();
 
         if (!isset($this->relateduserid)) {
-            throw new \coding_exception('The \'relateduserid\' must be set.');
+            throw new coding_exception('The \'relateduserid\' must be set.');
         }
     }
 
-    public static function get_objectid_mapping() {
-        return array('db' => 'assign_grades', 'restore' => 'grade');
+    /**
+     * Get objectid mapping.
+     *
+     * @return array
+     */
+    public static function get_objectid_mapping(): array {
+        return ['db' => 'assign_mark', 'restore' => 'mark'];
     }
 }

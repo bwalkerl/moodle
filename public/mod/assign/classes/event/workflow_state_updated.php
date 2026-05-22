@@ -33,6 +33,7 @@ defined('MOODLE_INTERNAL') || die();
  *      Extra information about event.
  *
  *      - string newstate: state of submission.
+ *      - bool markingworkflow: (optional) true if this is a marking workflow.
  * }
  *
  * @package    mod_assign
@@ -55,9 +56,10 @@ class workflow_state_updated extends base {
      * @param \assign $assign
      * @param \stdClass $user
      * @param string $state
+     * @param bool $markingworkflow true if this is a marking workflow.
      * @return workflow_state_updated
      */
-    public static function create_from_user(\assign $assign, \stdClass $user, $state) {
+    public static function create_from_user(\assign $assign, \stdClass $user, string $state, bool $markingworkflow = false) {
         $data = array(
             'context' => $assign->get_context(),
             'objectid' => $assign->get_instance()->id,
@@ -66,6 +68,9 @@ class workflow_state_updated extends base {
                 'newstate' => $state,
             ),
         );
+        if ($markingworkflow) {
+            $data['other']['markingworkflow'] = true;
+        }
         self::$preventcreatecall = false;
         /** @var workflow_state_updated $event */
         $event = self::create($data);
@@ -81,7 +86,8 @@ class workflow_state_updated extends base {
      * @return string
      */
     public function get_description() {
-        return "The user with id '$this->userid' has set the workflow state of the user with id '$this->relateduserid' " .
+        $type = !empty($this->other['markingworkflow']) ? 'marking workflow' : 'workflow';
+        return "The user with id '$this->userid' has set the $type state of the user with id '$this->relateduserid' " .
             "to the state '{$this->other['newstate']}' for the assignment with course module id '$this->contextinstanceid'.";
     }
 

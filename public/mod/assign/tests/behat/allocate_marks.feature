@@ -22,6 +22,9 @@ Feature: Allocate marks to student submissions
       | teacher1 | C1     | editingteacher |
       | teacher2 | C1     | editingteacher |
       | teacher3 | C1     | editingteacher |
+    And the following "permission overrides" exist:
+      | capability                         | permission | role           | contextlevel | reference |
+      | mod/assign:managemarkedallocations | Allow      | editingteacher | Course       | C1        |
     And the following "activity" exists:
       | activity                        | assign       |
       | course                          | C1           |

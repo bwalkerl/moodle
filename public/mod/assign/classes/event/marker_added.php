@@ -14,33 +14,29 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * The mod_assign marker updated event.
- *
- * @package    mod_assign
- * @copyright  2013 Frédéric Massart
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
 namespace mod_assign\event;
 
-defined('MOODLE_INTERNAL') || die();
+use assign;
+use coding_exception;
+use stdClass;
 
 /**
- * The mod_assign marker updated event class.
+ * The mod_assign marker added event class.
  *
  * @property-read array $other {
  *      Extra information about event.
  *
  *      - int markerid: user id of marker.
+ *      - int markernumber: the marker number being updated.
  * }
  *
  * @package    mod_assign
- * @since      Moodle 2.6
- * @copyright  2013 Frédéric Massart
+ * @since      Moodle 5.3
+ * @copyright  2026 Catalyst IT Australia Pty Ltd
+ * @author     Benjamin Walker <benjaminwalker@catalyst-au.net>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class marker_updated extends base {
+class marker_added extends base {
     /**
      * Flag for prevention of direct create() call.
      * @var bool
@@ -50,31 +46,30 @@ class marker_updated extends base {
     /**
      * Create instance of event.
      *
-     * TODO: Deprecate?
-     *
-     * @since Moodle 2.7
-     *
-     * @param \assign $assign
-     * @param \stdClass $user
-     * @param \stdClass $marker
-     * @return marker_updated
+     * @param assign $assign
+     * @param stdClass $user
+     * @param stdClass $marker
+     * @param stdClass $allocatedmarker
+     * @return marker_added
      */
-    public static function create_from_marker(\assign $assign, \stdClass $user, \stdClass $marker) {
-        $data = array(
+    public static function create_from_marker(assign $assign, stdClass $user, stdClass $marker, stdClass $allocatedmarker) {
+        $data = [
             'context' => $assign->get_context(),
-            'objectid' => $assign->get_instance()->id,
+            'objectid' => $allocatedmarker->id,
             'relateduserid' => $user->id,
-            'other' => array(
+            'other' => [
                 'markerid' => $marker->id,
-            ),
-        );
+                'markernumber' => $allocatedmarker->slot,
+            ],
+        ];
         self::$preventcreatecall = false;
-        /** @var marker_updated $event */
+        /** @var marker_added $event */
         $event = self::create($data);
         self::$preventcreatecall = true;
         $event->set_assign($assign);
         $event->add_record_snapshot('user', $user);
         $event->add_record_snapshot('user', $marker);
+        $event->add_record_snapshot('assign_allocated_marker', $allocatedmarker);
         return $event;
     }
 
@@ -84,8 +79,8 @@ class marker_updated extends base {
      * @return string
      */
     public function get_description() {
-        return "The user with id '$this->userid' has set the marker for the user with id '$this->relateduserid' to " .
-            "'{$this->other['markerid']}' for the assignment with course module id '$this->contextinstanceid'.";
+        return "The user with id '$this->userid' has allocated the user with id '{$this->other['markerid']}' as a marker " .
+            "for the user with id '$this->relateduserid' for the assignment with course module id '$this->contextinstanceid'.";
     }
 
     /**
@@ -94,7 +89,7 @@ class marker_updated extends base {
      * @return string
      */
     public static function get_name() {
-        return get_string('eventmarkerupdated', 'mod_assign');
+        return get_string('eventmarkeradded', 'mod_assign');
     }
 
     /**
@@ -103,39 +98,53 @@ class marker_updated extends base {
      * @return void
      */
     protected function init() {
-        $this->data['crud'] = 'u';
+        $this->data['crud'] = 'd';
         $this->data['edulevel'] = self::LEVEL_TEACHING;
-        $this->data['objecttable'] = 'assign';
+        $this->data['objecttable'] = 'assign_allocated_marker';
     }
 
     /**
      * Custom validation.
      *
-     * @throws \coding_exception
+     * @throws coding_exception
      */
     protected function validate_data() {
         if (self::$preventcreatecall) {
-            throw new \coding_exception('cannot call marker_updated::create() directly, use marker_updated::create_from_marker() instead.');
+            throw new coding_exception('cannot call marker_added::create() directly, use marker_added::create_from_marker() instead.');
         }
 
         parent::validate_data();
 
         if (!isset($this->relateduserid)) {
-            throw new \coding_exception('The \'relateduserid\' must be set.');
+            throw new coding_exception('The \'relateduserid\' must be set.');
         }
 
         if (!isset($this->other['markerid'])) {
-            throw new \coding_exception('The \'markerid\' value must be set in other.');
+            throw new coding_exception('The \'markerid\' value must be set in other.');
+        }
+
+        if (!isset($this->other['markernumber'])) {
+            throw new coding_exception('The \'markernumber\' value must be set in other.');
         }
     }
 
-    public static function get_objectid_mapping() {
-        return array('db' => 'assign', 'restore' => 'assign');
+    /**
+     * Get objectid mapping.
+     *
+     * @return array
+     */
+    public static function get_objectid_mapping(): array {
+        return ['db' => 'assign_allocated_marker', 'restore' => 'allocatedmarker'];
     }
 
-    public static function get_other_mapping() {
-        $othermapped = array();
-        $othermapped['markerid'] = array('db' => 'user', 'restore' => 'user');
+    /**
+     * Get other mapping.
+     *
+     * @return array
+     */
+    public static function get_other_mapping(): array {
+        $othermapped = [];
+        $othermapped['markerid'] = ['db' => 'user', 'restore' => 'user'];
 
         return $othermapped;
     }

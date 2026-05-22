@@ -14,6 +14,9 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 import * as formSubmit from 'core_form/submit';
+import ModalEvents from 'core/modal_events';
+import {getString} from 'core/str';
+import SaveCancelModal from 'core/modal_save_cancel';
 
 /**
  * Module for the quick grading functionality on the submissions page.
@@ -26,9 +29,11 @@ import * as formSubmit from 'core_form/submit';
 /** @constant {Object} The object containing the relevant selectors. */
 const Selectors = {
     quickGradingSaveRegion: '[data-region="quick-grading-save"]',
+    quickGradingTable: 'table#submissions',
+    markerEnabledCheckbox: 'input[type="checkbox"][name*="allocatedmarkerenabled"]',
     notifyStudentsCheckbox: 'input[type="checkbox"][name="sendstudentnotifications"]',
     notifyStudentsHidden: 'input[type="hidden"][name="sendstudentnotifications"]',
-    saveButton: 'button[type="submit"]'
+    saveButton: 'button[type="submit"]',
 };
 
 /**
@@ -50,6 +55,52 @@ export const init = () => {
                 // form. Therefore, we need to enable or disable the hidden input based on the checkbox state.
                 const notifyStudentsHidden = notifyStudentsCheckbox.parentNode.querySelector(Selectors.notifyStudentsHidden);
                 notifyStudentsHidden.disabled = notifyStudentsCheckbox.checked;
+            }
+        });
+    }
+
+    const quickGradingTable = document.querySelector(Selectors.quickGradingTable);
+    if (quickGradingTable) {
+        quickGradingTable.addEventListener('change', async e => {
+            const markerCheckbox = e.target;
+            if (!markerCheckbox.matches(Selectors.markerEnabledCheckbox)) {
+                return;
+            }
+
+            const select = markerCheckbox.closest('td').querySelector('select');
+            if (select) {
+                if (!markerCheckbox.checked) {
+                    select.disabled = true;
+                    return;
+                }
+
+                const row = select.closest('tr');
+                const gradeInput = row.querySelector('input.quickgrade[id^="quickgrade_"]');
+                const hasGrade = gradeInput && gradeInput.value.trim() !== '';
+                if (!hasGrade) {
+                    select.disabled = false;
+                    return;
+                }
+
+                // Revert the checkbox change until it is confirmed.
+                markerCheckbox.checked = false;
+
+                // Add a notification that enabling the marker will clear the current grade.
+                const modal = await SaveCancelModal.create({
+                    title: await getString('confirm', 'moodle'),
+                    body: await getString('enableoptionalmarkeraftergraded', 'mod_assign'),
+                    buttons: {
+                        save: await getString('enable', 'moodle'),
+                    },
+                    show: true,
+                    removeOnClose: true,
+                });
+
+                // Handle save event.
+                modal.getRoot().on(ModalEvents.save, () => {
+                    markerCheckbox.checked = true;
+                    select.disabled = false;
+                });
             }
         });
     }

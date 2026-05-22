@@ -93,7 +93,7 @@ final class provider_test extends provider_testcase {
         // Any allocated marker comments should also be visible in the data export.
         // Allocate a marker to the student's submission.
         $assign->update_allocated_markers($user1->id, [
-            $user2->id,
+            1 => $user2->id,
         ]);
 
         // Add a comment for that marker.

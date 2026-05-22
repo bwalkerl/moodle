@@ -76,6 +76,7 @@ final class markerallocation_test extends \advanced_testcase {
             'markingworkflow'                   => 1,
             'markingallocation'                 => 1,
             'markercount'                       => ($args['markercount']) ?? ASSIGN_MULTIMARKING_DEFAULT_MARKERS,
+            'optionalmarkercount'               => ($args['optionalmarkercount']) ?? ASSIGN_MULTIMARKING_DEFAULT_OPTIONAL_MARKERS,
             'multimarkmethod'                   => ($args['multimarkmethod']) ?? ASSIGN_MULTIMARKING_METHOD_MANUAL,
             'multimarkrounding'                 => ($args['multimarkrounding']) ?? null,
         ];
@@ -92,6 +93,22 @@ final class markerallocation_test extends \advanced_testcase {
         $context = \core\context\module::instance($cm->id);
         $assignment = new assign($context, $cm, $course);
         return $assignment;
+    }
+
+    /**
+     * Updates an assignment instance.
+     * @param assign $assignment
+     * @param array $updatefields
+     */
+    private function update_assignment_instance(assign $assignment, array $updatefields): void {
+        // Need to clone so the update can detect the differences.
+        $instance = clone $assignment->get_instance();
+        $instance->instance = $instance->id;
+        $instance->advancedgradingmethod_submissions = '';
+        foreach ($updatefields as $key => $value) {
+            $instance->$key = $value;
+        }
+        $assignment->update_instance($instance);
     }
 
     /**
@@ -197,7 +214,7 @@ final class markerallocation_test extends \advanced_testcase {
         // Firstly, allocate teacher1 to every student in group A.
         foreach ($this->users['students'] as $studentnumber => $student) {
             if ($studentnumber <= 3) {
-                $assignment->update_allocated_markers($student->id, [$this->users['teachers'][1]->id]);
+                $assignment->update_allocated_markers($student->id, [1 => $this->users['teachers'][1]->id]);
             }
         }
 
@@ -229,7 +246,7 @@ final class markerallocation_test extends \advanced_testcase {
         // Now allocate teacher2 to 2 out of 3 students in group B.
         foreach ($this->users['students'] as $studentnumber => $student) {
             if ($studentnumber > 3 && $studentnumber < 6) {
-                $assignment->update_allocated_markers($student->id, [$this->users['teachers'][2]->id]);
+                $assignment->update_allocated_markers($student->id, [1 => $this->users['teachers'][2]->id]);
             }
         }
 
@@ -307,19 +324,31 @@ final class markerallocation_test extends \advanced_testcase {
         $markers = $assignment->get_allocated_markers($this->users[2]->id);
         $this->assertCount(0, $markers);
 
+        // Wait a small amount of time so we can test whether grade timemodified is updated.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $timemodified = $gradeobject->timemodified;
+        sleep(1);
+
         // Allocate both teachers to the student assignment.
         $assignment->update_allocated_markers($this->users[2]->id, [
-            $this->users[0]->id,
-            $this->users[1]->id,
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
         ]);
         $markers = $assignment->get_allocated_markers($this->users[2]->id);
         $this->assertCount(2, $markers);
 
+        // Changing allocated markers should update grade timemodified as it's used to prevent stale form submissions.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
+        $this->assertNotEquals($timemodified, $gradeobject->timemodified);
+
         // Now test that we can add a mark to the submission.
         // Firstly, there should be no mark currently for either marker.
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
         $mark = $assignment->get_mark($gradeobject->id, $this->users[0]->id);
         $this->assertNull($mark);
+
+        // Wait a small amount of time so we can test whether grade timemodified is updated.
+        $timemodified = $gradeobject->timemodified;
+        sleep(1);
 
         // Assign a mark as teacher1.
         $gradeobject->grader = $this->users[0]->id;
@@ -336,6 +365,10 @@ final class markerallocation_test extends \advanced_testcase {
         // Now check that we can find the mark.
         $mark = $assignment->get_mark($gradeobject->id, $this->users[1]->id);
         $this->assertEquals("11.00000", $mark->mark);
+
+        // Updating marks should also update grade timemodified.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
+        $this->assertNotEquals($timemodified, $gradeobject->timemodified);
     }
 
     /**
@@ -349,8 +382,8 @@ final class markerallocation_test extends \advanced_testcase {
 
         // Allocate both teachers to the student assignment.
         $assignment->update_allocated_markers($this->users[2]->id, [
-            $this->users[0]->id,
-            $this->users[1]->id,
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
         ]);
 
         $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
@@ -381,8 +414,8 @@ final class markerallocation_test extends \advanced_testcase {
 
         // Allocate both teachers to the student assignment.
         $assignment->update_allocated_markers($this->users[2]->id, [
-            $this->users[0]->id,
-            $this->users[1]->id,
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
         ]);
 
         $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
@@ -414,8 +447,8 @@ final class markerallocation_test extends \advanced_testcase {
 
         // Allocate both teachers to the student assignment.
         $assignment->update_allocated_markers($this->users[2]->id, [
-            $this->users[0]->id,
-            $this->users[1]->id,
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
         ]);
 
         $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
@@ -447,8 +480,8 @@ final class markerallocation_test extends \advanced_testcase {
 
         // Allocate both teachers to the student assignment.
         $assignment->update_allocated_markers($this->users[2]->id, [
-            $this->users[0]->id,
-            $this->users[1]->id,
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
         ]);
 
         $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
@@ -480,8 +513,8 @@ final class markerallocation_test extends \advanced_testcase {
 
         // Allocate both teachers to the student assignment.
         $assignment->update_allocated_markers($this->users[2]->id, [
-            $this->users[0]->id,
-            $this->users[1]->id,
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
         ]);
 
         $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
@@ -513,8 +546,8 @@ final class markerallocation_test extends \advanced_testcase {
 
         // Allocate both teachers to the student assignment.
         $assignment->update_allocated_markers($this->users[2]->id, [
-            $this->users[0]->id,
-            $this->users[1]->id,
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
         ]);
 
         $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
@@ -543,8 +576,8 @@ final class markerallocation_test extends \advanced_testcase {
 
         // Allocate both teachers to the student assignment.
         $assignment->update_allocated_markers($this->users[2]->id, [
-            $this->users[0]->id,
-            $this->users[1]->id,
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
         ]);
 
         // First confirm that the overall grade workflow state is not set.
@@ -555,7 +588,6 @@ final class markerallocation_test extends \advanced_testcase {
         $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
         $gradeobject->grader = $this->users[0]->id;
         $assignment->update_mark($gradeobject, null, ASSIGN_MARKING_WORKFLOW_STATE_INMARKING);
-        $assignment->calculate_and_save_overall_workflow_state($gradeobject, $flags, $flags->workflowstate);
 
         // Re-check the overall workflow. This should now be "In Marking" as well.
         $flags = $assignment->get_user_flags($this->users[2]->id, true);
@@ -564,7 +596,6 @@ final class markerallocation_test extends \advanced_testcase {
         // Now this teacher marks theirs as "Marking Complete".
         $gradeobject->grader = $this->users[0]->id;
         $assignment->update_mark($gradeobject, 90, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
-        $assignment->calculate_and_save_overall_workflow_state($gradeobject, $flags, $flags->workflowstate);
 
         // Nothing should change on the overall state, that should still be In Marking.
         $flags = $assignment->get_user_flags($this->users[2]->id, true);
@@ -573,11 +604,25 @@ final class markerallocation_test extends \advanced_testcase {
         // Now the second marker sets theirs as "Marking Complete".
         $gradeobject->grader = $this->users[1]->id;
         $assignment->update_mark($gradeobject, 70, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
-        $assignment->calculate_and_save_overall_workflow_state($gradeobject, $flags, $flags->workflowstate);
 
         // Now that both are complete, the overall state should be the same.
         $flags = $assignment->get_user_flags($this->users[2]->id, true);
         $this->assertEquals(ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW, $flags->workflowstate);
+
+        // If the workflow state has been manually updated to a future state, updates should not override it.
+        $flags->workflowstate = ASSIGN_MARKING_WORKFLOW_STATE_INREVIEW;
+        $assignment->update_user_flags($flags);
+
+        // Manually update the workflow state to 'In review'.
+        $flags = $assignment->get_user_flags($this->users[2]->id, true);
+        $this->assertEquals(ASSIGN_MARKING_WORKFLOW_STATE_INREVIEW, $flags->workflowstate);
+
+        // Trigger calculation.
+        $assignment->update_mark($gradeobject, 80, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
+
+        // The workflow state should not be updated.
+        $flags = $assignment->get_user_flags($this->users[2]->id, true);
+        $this->assertEquals(ASSIGN_MARKING_WORKFLOW_STATE_INREVIEW, $flags->workflowstate);
     }
 
     /**
@@ -594,8 +639,8 @@ final class markerallocation_test extends \advanced_testcase {
 
         // Allocate both teachers to the student assignment.
         $assignment->update_allocated_markers($this->users[2]->id, [
-            $this->users[0]->id,
-            $this->users[1]->id,
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
         ]);
 
         $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
@@ -605,7 +650,7 @@ final class markerallocation_test extends \advanced_testcase {
         $assignment->update_mark($gradeobject, 90);
 
         // Now we remove teacher1 and add manager instead. So we have manager and teacher2 as the markers.
-        $assignment->update_allocated_markers($this->users[2]->id, [$this->users[3]->id, $this->users[1]->id]);
+        $assignment->update_allocated_markers($this->users[2]->id, [1 => $this->users[3]->id, 2 => $this->users[1]->id]);
 
         // Now add a marker from teacher2.
         $gradeobject->grader = $this->users[1]->id;
@@ -615,5 +660,567 @@ final class markerallocation_test extends \advanced_testcase {
         // So the grade should not be set.
         $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
         $this->assertEquals(-1, $gradeobject->grade);
+    }
+
+    /**
+     * Verify that calculated agreed marks are cleared when a mark can no longer be calculated.
+     * This should only be triggered when markers are allocated or marks are assigned.
+     *
+     * @covers ::update_mark
+     */
+    public function test_marks_are_cleared_when_mark_can_no_longer_be_calculated(): void {
+        $this->setup_data();
+        $assignment = $this->create_assignment([
+            'markercount' => 2,
+            'optionalmarkercount' => 0,
+            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
+            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+        ]);
+
+        $assignment->update_allocated_markers($this->users[2]->id, [
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
+        ]);
+
+        // Assign a mark as teacher1.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $gradeobject->grader = $this->users[0]->id;
+        $assignment->update_mark($gradeobject, 90);
+
+        // Assign a mark as teacher2.
+        $gradeobject->grader = $this->users[1]->id;
+        $assignment->update_mark($gradeobject, 10);
+
+        // All graders have marked.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(50, $gradeobject->grade);
+
+        // Unset a mark.
+        $gradeobject->grader = $this->users[1]->id;
+        $assignment->update_mark($gradeobject, null);
+
+        // Grade should be cleared.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(-1, $gradeobject->grade);
+
+        // Assign a mark as teacher2 again.
+        $gradeobject->grader = $this->users[1]->id;
+        $assignment->update_mark($gradeobject, 10);
+
+        // All graders have marked.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(50, $gradeobject->grade);
+
+        // Allocate a different marker who hasn't marked.
+        // This requires elevated permissions and would rarely happen in practice.
+        $assignment->update_allocated_markers($this->users[2]->id, [
+            1 => $this->users[0]->id,
+            2 => $this->users[3]->id,
+        ]);
+
+        // Grade should be cleared.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(-1, $gradeobject->grade);
+    }
+
+    /**
+     * Verify that a final grade is not calculated when an enabled optional marker
+     * has not completed marking.
+     *
+     * @covers ::update_mark
+     */
+    public function test_enabled_optional_markers_included_in_mark_calculations(): void {
+        global $DB;
+
+        $this->setup_data();
+        $assignment = $this->create_assignment([
+            'markercount' => 2,
+            'optionalmarkercount' => 1,
+            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
+            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+        ]);
+
+        // Slot 2 is optional and enabled.
+        $assignment->update_allocated_markers($this->users[2]->id, [
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
+        ], [2 => true]);
+
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+
+        // Assign a mark as teacher1.
+        $gradeobject->grader = $this->users[0]->id;
+        $assignment->update_mark($gradeobject, 90);
+
+        // Ensure it is not graded when the enabled optional marker has not marked.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
+        $this->assertEquals(-1, $gradeobject->grade);
+
+        // Assign a mark as teacher2.
+        $gradeobject->grader = $this->users[1]->id;
+        $assignment->update_mark($gradeobject, 10);
+
+        // All required markers have now marked, so the grade should be set.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
+        $this->assertEquals(50, $gradeobject->grade);
+    }
+
+    /**
+     * Verify that disabled optional markers are ignored during grade calculation.
+     *
+     * @covers ::update_mark
+     */
+    public function test_disabled_optional_markers_not_included_in_mark_calculations(): void {
+        global $DB;
+
+        $this->setup_data();
+        $assignment = $this->create_assignment([
+            'markercount' => 2,
+            'optionalmarkercount' => 1,
+            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
+            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+        ]);
+
+        // Teachers are allocated to both marking slots, but slot 2 is optional and not enabled.
+        $assignment->update_allocated_markers($this->users[2]->id, [
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
+        ]);
+
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+
+        // Assign a mark as teacher1.
+        $gradeobject->grader = $this->users[0]->id;
+        $assignment->update_mark($gradeobject, 90);
+
+        // All required markers have marked, so we should have a grade.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
+        $this->assertEquals(90, $gradeobject->grade);
+
+        // Assign a mark as teacher2.
+        $gradeobject->grader = $this->users[1]->id;
+        $assignment->update_mark($gradeobject, 10);
+
+        // Ensure the disabled optional markers mark is ignored.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
+        $this->assertEquals(90, $gradeobject->grade);
+    }
+
+    /**
+     * Increasing total markers does not break configuration rules
+     * and updates derived minimum marker count correctly.
+     *
+     * @covers ::can_change_marker_count, ::update_instance
+     */
+    public function test_increasing_total_marker_count(): void {
+        $this->setup_data();
+        $assignment = $this->create_assignment([
+            'markercount' => 2,
+            'optionalmarkercount' => 0,
+            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
+            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+        ]);
+
+        $assignment->update_allocated_markers($this->users[2]->id, [
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
+        ]);
+
+        $this->assertequals(2, $assignment->minimum_marker_count());
+
+        // Assign a mark as teacher1.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $gradeobject->grader = $this->users[0]->id;
+        $assignment->update_mark($gradeobject, 90);
+
+        // Can increase when not all markers have marked.
+        $this->assertTrue($assignment->can_change_marker_count(3));
+
+        // Assign a mark as teacher2.
+        $gradeobject->grader = $this->users[1]->id;
+        $assignment->update_mark($gradeobject, 10);
+
+        // All graders have marked.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(50, $gradeobject->grade);
+
+        // Can increase when all markers have marked.
+        $this->assertTrue($assignment->can_change_marker_count(3));
+
+        // Update the assignment settings.
+        $this->update_assignment_instance($assignment, ['markercount' => 3]);
+
+        $this->assertequals(3, $assignment->minimum_marker_count());
+
+        // An increase in required markers should not recalculate grades from marks.
+        // These should only update when markers or enabled status changes.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(50, $gradeobject->grade);
+    }
+
+    /**
+     * Decreasing total markers is blocked when removed slots contain marks.
+     *
+     * @covers ::can_change_marker_count, ::update_instance
+     */
+    public function test_decreasing_total_marker_count(): void {
+        $this->setup_data();
+        $assignment = $this->create_assignment([
+            'markercount' => 3,
+            'optionalmarkercount' => 0,
+            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
+            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+        ]);
+
+        $assignment->update_allocated_markers($this->users[2]->id, [
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
+        ]);
+
+        // Assign a mark as teacher1.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $gradeobject->grader = $this->users[0]->id;
+        $assignment->update_mark($gradeobject, 90);
+
+        // Assign a mark as teacher2.
+        $gradeobject->grader = $this->users[1]->id;
+        $assignment->update_mark($gradeobject, 10);
+
+        // Two out of three markers have marked, so grade not calculated yet.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(-1, $gradeobject->grade);
+
+        // Can decrease when not all markers have marked.
+        $this->assertTrue($assignment->can_change_marker_count(2));
+
+        // Update the assignment settings.
+        $this->update_assignment_instance($assignment, ['markercount' => 2]);
+
+        $this->assertequals(2, $assignment->get_instance()->markercount);
+
+        // A decrease in required markers should calculate grades that now meet the min requirements.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(50, $gradeobject->grade);
+
+        // Now try and decrease again. Cannot decrease when markers have marked.
+        $this->assertFalse($assignment->can_change_marker_count(1));
+    }
+
+    /**
+     * Increasing optional markers is blocked when newly optional slots contain marks.
+     *
+     * @covers ::can_change_optional_marker_count, ::update_instance
+     */
+    public function test_increasing_optional_marker_count(): void {
+        global $DB;
+
+        $this->setup_data();
+        $assignment = $this->create_assignment([
+            'markercount' => 3,
+            'optionalmarkercount' => 0,
+            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
+            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+        ]);
+
+        $assignment->update_allocated_markers($this->users[2]->id, [
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
+        ]);
+        $this->assertequals(3, $assignment->get_instance()->markercount);
+        $this->assertequals(3, $assignment->minimum_marker_count());
+
+        // Assign a mark as teacher1.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $gradeobject->grader = $this->users[0]->id;
+        $assignment->update_mark($gradeobject, 90);
+
+        // Assign a mark as teacher2.
+        $gradeobject->grader = $this->users[1]->id;
+        $assignment->update_mark($gradeobject, 10);
+
+        // The grade should not be calculated as not all markers have marked.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(-1, $gradeobject->grade);
+
+        // Can increase when markers are not allocated.
+        $this->assertTrue($assignment->can_change_optional_marker_count(3, 1));
+
+        // Update the assignment settings.
+        $this->update_assignment_instance($assignment, ['optionalmarkercount' => 1]);
+
+        $this->assertequals(3, $assignment->get_instance()->markercount);
+        $this->assertequals(2, $assignment->minimum_marker_count());
+
+        // The third marker should be unchecked by default.
+        $this->assertequals(2, $assignment->expected_marker_count($this->users[2]->id));
+
+        // An increase in optional markers should calculate grades that now meet the requirements.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(50, $gradeobject->grade);
+
+        // Cannot increase when markers have marked.
+        $this->assertFalse($assignment->can_change_optional_marker_count(3, 2));
+
+        // Remove the second mark for testing.
+        $DB->delete_records('assign_mark', ['assignment' => $assignment->get_instance()->id, 'marker' => $this->users[1]->id]);
+
+        // Can increase when markers are allocated but haven't marked.
+        $this->assertTrue($assignment->can_change_optional_marker_count(3, 2));
+
+        // Update the assignment settings.
+        $this->update_assignment_instance($assignment, ['optionalmarkercount' => 2]);
+
+        $this->assertequals(3, $assignment->get_instance()->markercount);
+        $this->assertequals(1, $assignment->minimum_marker_count());
+
+        // The second marker was allocated, so should be checked by default.
+        $this->assertequals(2, $assignment->expected_marker_count($this->users[2]->id));
+
+        // The marker requirements are no longer met, so the grade should be unchanged.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(50, $gradeobject->grade);
+    }
+
+    /**
+     * Decreasing optional markers is always allowed,
+     * even if previously optional slots contain marks.
+     *
+     * @covers ::can_change_optional_marker_count, ::update_instance
+     */
+    public function test_decreasing_optional_marker_count(): void {
+        $this->setup_data();
+        $assignment = $this->create_assignment([
+            'markercount' => 3,
+            'optionalmarkercount' => 2,
+            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
+            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+        ]);
+
+        $assignment->update_allocated_markers($this->users[2]->id, [
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
+        ], [2 => true]);
+
+        $this->assertequals(1, $assignment->minimum_marker_count());
+        $this->assertequals(2, $assignment->expected_marker_count($this->users[2]->id));
+
+        // Assign a mark as teacher1.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $gradeobject->grader = $this->users[0]->id;
+        $assignment->update_mark($gradeobject, 90);
+
+        // Assign a mark as teacher2.
+        $gradeobject->grader = $this->users[1]->id;
+        $assignment->update_mark($gradeobject, 10);
+
+        // All required markers have marked, so grade is calculated.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(50, $gradeobject->grade);
+
+        // Can decrease when markers have marked.
+        $this->assertTrue($assignment->can_change_optional_marker_count(3, 1));
+
+        // Update the assignment settings.
+        $this->update_assignment_instance($assignment, ['optionalmarkercount' => 1]);
+
+        $this->assertequals(3, $assignment->get_instance()->markercount);
+        $this->assertequals(2, $assignment->minimum_marker_count());
+        $this->assertequals(2, $assignment->expected_marker_count($this->users[2]->id));
+
+        // Grade should be unchanged.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(50, $gradeobject->grade);
+
+        // Can decrease when markers haven't marked.
+        $this->assertTrue($assignment->can_change_optional_marker_count(3, 0));
+
+        // Update the assignment settings.
+        $this->update_assignment_instance($assignment, ['optionalmarkercount' => 0]);
+
+        $this->assertequals(3, $assignment->get_instance()->markercount);
+        $this->assertequals(3, $assignment->minimum_marker_count());
+        $this->assertequals(3, $assignment->expected_marker_count($this->users[2]->id));
+
+        // Decreasing optional markers should clear calculated grades that no longer meet requirements.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(-1, $gradeobject->grade);
+    }
+
+    /**
+     * Tests increasing optional markers while decreasing and increasing total marker count
+     *
+     * @covers ::update_instance
+     */
+    public function test_bidirectional_marker_count_change(): void {
+        global $DB;
+
+        $this->setup_data();
+        $assignment = $this->create_assignment([
+            'markercount' => 3,
+            'optionalmarkercount' => 0,
+            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
+            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+        ]);
+
+        // Allocate markers across all slots.
+        $assignment->update_allocated_markers($this->users[2]->id, [
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
+            3 => $this->users[3]->id,
+        ]);
+
+        // Initial assertions.
+        $this->assertEquals(3, $assignment->minimum_marker_count());
+
+        // Reduce marker count and increase optional markers at same time.
+        $this->assertTrue($assignment->can_change_optional_marker_count(2, 1));
+        $this->update_assignment_instance($assignment, [
+            'markercount' => 2,
+            'optionalmarkercount' => 1,
+        ]);
+
+        // Marker 2 should now be optional and enabled.
+        $this->assertEquals(1, $assignment->minimum_marker_count());
+        $this->assertEquals(2, $assignment->expected_marker_count($this->users[2]->id));
+
+        // Increase marker count and increase optional markers at same time.
+        $this->assertTrue($assignment->can_change_optional_marker_count(4, 2));
+        $this->update_assignment_instance($assignment, [
+            'markercount' => 4,
+            'optionalmarkercount' => 2,
+        ]);
+
+        // Previous marker should not automatically reappear.
+        $this->assertEquals(2, $assignment->minimum_marker_count());
+        $this->assertEquals(2, $assignment->expected_marker_count($this->users[2]->id));
+
+        // Enabled should be removed from marker 2 status.
+        $allocated = $assignment->get_all_allocated_markers($this->users[2]->id);
+        $this->assertNull($allocated[2]->enabled);
+    }
+
+    /**
+     * Verify enabling multi-marking keeps existing grades when no marker marks exist.
+     *
+     * @covers ::update_instance
+     */
+    public function test_enabling_multimarking_keeps_existing_grades(): void {
+        $this->setup_data();
+
+        $assignment = $this->create_assignment([
+            'markercount' => 1,
+        ]);
+
+        // Create a standard grade.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $gradeobject->grade = 75;
+        $assignment->update_grade($gradeobject);
+
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(75, $gradeobject->grade);
+
+        // Enable multi-marking.
+        $this->update_assignment_instance($assignment, [
+            'markercount' => 2,
+            'optionalmarkercount' => 0,
+            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
+            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+        ]);
+
+        // Existing grade should be kept until allocated or marked.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(75, $gradeobject->grade);
+    }
+
+    /**
+     * Verify that grades are recalculated when the marking method changes.
+     *
+     * @dataProvider changing_grade_calculation_method_provider
+     * @param string $method
+     * @param int|null $rounding
+     * @param float $expectedgrade
+     * @covers ::update_instance
+     */
+    public function test_changing_grade_calculation_method(string $method, ?int $rounding, float $expectedgrade): void {
+        $this->setup_data();
+
+        $assignment = $this->create_assignment([
+            'markercount' => 2,
+            'optionalmarkercount' => 0,
+            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
+            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+        ]);
+
+        $assignment->update_allocated_markers($this->users[2]->id, [
+            1 => $this->users[0]->id,
+            2 => $this->users[1]->id,
+        ]);
+
+        // Assign a mark as teacher1.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $gradeobject->grader = $this->users[0]->id;
+        $assignment->update_mark($gradeobject, 90);
+
+        // Assign a mark as teacher2.
+        $gradeobject->grader = $this->users[1]->id;
+        $assignment->update_mark($gradeobject, 15);
+
+        // All required markers have marked, so grade is calculated.
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals(52.5, $gradeobject->grade);
+
+        // Manually update the grade to confirm no changes to the existing strategy.
+        $gradeobject->grade = 55;
+        $assignment->update_grade($gradeobject);
+
+        // Update the assignment settings.
+        $this->update_assignment_instance($assignment, [
+            'multimarkmethod' => $method,
+            'multimarkrounding' => $rounding,
+        ]);
+
+        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
+        $this->assertEquals($expectedgrade, $gradeobject->grade);
+    }
+
+    /**
+     * Data provider for test_changing_grade_calculation_method.
+     *
+     * @return array[]
+     */
+    public static function changing_grade_calculation_method_provider(): array {
+        return [
+            'manual' => [
+                ASSIGN_MULTIMARKING_METHOD_MANUAL,
+                null,
+                -1,
+            ],
+            'maximum' => [
+                ASSIGN_MULTIMARKING_METHOD_MAX,
+                null,
+                90,
+            ],
+            'average_round_natural' => [
+                ASSIGN_MULTIMARKING_METHOD_AVERAGE,
+                ASSIGN_MULTIMARKING_AVERAGE_ROUND_NATURAL,
+                53,
+            ],
+            'average_round_up' => [
+                ASSIGN_MULTIMARKING_METHOD_AVERAGE,
+                ASSIGN_MULTIMARKING_AVERAGE_ROUND_UP,
+                53,
+            ],
+            'average_round_down' => [
+                ASSIGN_MULTIMARKING_METHOD_AVERAGE,
+                ASSIGN_MULTIMARKING_AVERAGE_ROUND_DOWN,
+                52,
+            ],
+            // Grades should not be recalculated when the strategy doesn't change.
+            'average' => [
+                ASSIGN_MULTIMARKING_METHOD_AVERAGE,
+                ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+                55,
+            ],
+        ];
     }
 }

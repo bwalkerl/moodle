@@ -42,7 +42,7 @@ class mod_assign_mod_form extends moodleform_mod {
      * @return void
      */
     public function definition() {
-        global $CFG, $COURSE, $OUTPUT;;
+        global $CFG, $COURSE, $OUTPUT, $PAGE;
         $mform = $this->_form;
 
         $mform->addElement('header', 'general', get_string('general', 'form'));
@@ -85,9 +85,10 @@ class mod_assign_mod_form extends moodleform_mod {
 
         // Add the option to recalculate the penalty if there is existing grade.
         $penaltysettingmessage = '';
+        $gradecount = $assignment->count_grades();
         if ($assignment->has_instance()
             && \mod_assign\penalty\helper::is_penalty_enabled($assignment->get_instance()->id)
-            && $assignment->count_grades() > 0) {
+            && $gradecount > 0) {
             // Create notification.
             $penaltysettingmessage = $OUTPUT->notification(get_string('penaltyduedatechangemessage', 'assign'), 'warning', false);
             $mform->addElement('html', $penaltysettingmessage);
@@ -244,13 +245,35 @@ class mod_assign_mod_form extends moodleform_mod {
         $mform->hideIf('markingallocation', 'markingworkflow', 'eq', 0);
 
         $name = get_string('markercount', 'assign');
-        $markercount = range(1, ASSIGN_MULTIMARKING_MAX_MARKERS);
+        $configmaxmarkers = get_config('assign', 'maxmarkercount');
+        if ($configmaxmarkers === false) {
+            $configmaxmarkers = ASSIGN_MULTIMARKING_DEFAULT_MAX_MARKERS;
+        }
+        // Existing values should always remain selectable if the global limit changes.
+        $maxmarkers = max($configmaxmarkers, $this->current->markercount ?? 0);
+        $markercount = range(1, $maxmarkers);
         $mform->addElement('select', 'markercount', $name, array_combine($markercount, $markercount));
         $mform->addHelpButton('markercount', 'markercount', 'assign');
         $mform->disabledIf('markercount', 'advancedgradingmethod_submissions', 'neq', '');
         $mform->hideIf('markercount', 'advancedgradingmethod_submissions', 'neq', '');
         $mform->hideIf('markercount', 'markingallocation', 'neq', '1');
         $mform->hideIf('markercount', 'markingworkflow', 'neq', '1');
+
+        $name = get_string('optionalmarkercount', 'assign');
+        $configmaxoptionalmarkers = get_config('assign', 'maxoptionalmarkercount');
+        if ($configmaxoptionalmarkers === false) {
+            $configmaxoptionalmarkers = $configmaxmarkers - 1;
+        }
+        // Optional markers must be less than the maximum total marker count.
+        $maxoptionalmarkers = max(min($configmaxoptionalmarkers, $maxmarkers - 1), $this->current->optionalmarkercount ?? 0);
+        $optionalmarkercount = range(0, $maxoptionalmarkers);
+        $mform->addElement('select', 'optionalmarkercount', $name, array_combine($optionalmarkercount, $optionalmarkercount));
+        $mform->addHelpButton('optionalmarkercount', 'optionalmarkercount', 'assign');
+        $mform->disabledIf('optionalmarkercount', 'advancedgradingmethod_submissions', 'neq', '');
+        $mform->hideIf('optionalmarkercount', 'advancedgradingmethod_submissions', 'neq', '');
+        $mform->hideIf('optionalmarkercount', 'markingallocation', 'neq', '1');
+        $mform->hideIf('optionalmarkercount', 'markingworkflow', 'neq', '1');
+        $mform->hideIf('optionalmarkercount', 'markercount', 'eq', '1');
 
         $name = get_string('multimarkmethod', 'assign');
         $options = new core\output\choicelist();
@@ -351,6 +374,10 @@ class mod_assign_mod_form extends moodleform_mod {
         $this->apply_admin_defaults();
 
         $this->add_action_buttons();
+
+        if ($gradecount > 0) {
+            $PAGE->requires->js_call_amd('mod_assign/multimark_calculation_confirm', 'init');
+        }
     }
 
     /**
@@ -411,6 +438,18 @@ class mod_assign_mod_form extends moodleform_mod {
 
         [$assignment] = $this->get_assign();
         $errors = array_merge($errors, $assignment->plugin_settings_validation($data, $files));
+
+        if (isset($data['markercount']) && !$assignment->can_change_marker_count($data['markercount'])) {
+            $errors['markercount'] = get_string('markercountdecreasevalidation', 'assign');
+        }
+
+        if (isset($data['markercount']) && $data['markercount'] > 1 && isset($data['optionalmarkercount'])) {
+            if ($data['optionalmarkercount'] >= $data['markercount']) {
+                $errors['optionalmarkercount'] = get_string('optionalmarkercountvalidation', 'assign');
+            } else if (!$assignment->can_change_optional_marker_count($data['markercount'], $data['optionalmarkercount'])) {
+                $errors['optionalmarkercount'] = get_string('optionalmarkercountincreasevalidation', 'assign');
+            }
+        }
 
         return $errors;
     }

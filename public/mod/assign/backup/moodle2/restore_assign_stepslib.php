@@ -250,6 +250,12 @@ class restore_assign_activity_structure_step extends restore_activity_structure_
         $data->student = $this->get_mappingid('user', $data->student);
         $data->marker = $this->get_mappingid('user', $data->marker);
 
+        // Older backups did not include slot, so may need to calculate this.
+        $data->slot ??= $DB->count_records('assign_allocated_marker', [
+            'assignment' => $data->assignment,
+            'student' => $data->student,
+        ]) + 1;
+
         $DB->insert_record('assign_allocated_marker', $data);
     }
 

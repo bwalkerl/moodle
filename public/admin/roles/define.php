@@ -187,6 +187,7 @@ if ($action === 'add' and $resettype !== 'none') {
     // Create the table object.
     if ($action === 'view') {
         $definitiontable = new core_role_view_role_definition_table($systemcontext, $roleid);
+        $definitiontable->set_filter_url($baseurl);
     } else if ($showadvanced) {
         $definitiontable = new core_role_define_role_table_advanced($systemcontext, $roleid);
     } else {

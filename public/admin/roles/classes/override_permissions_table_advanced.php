@@ -84,6 +84,26 @@ class core_role_override_permissions_table_advanced extends core_role_capability
         return $this->haslockedcapabilities;
     }
 
+    /**
+     * On this page, risk filtering only shows effectively allowed capabilities.
+     *
+     * @param stdClass $capability Capability row object.
+     * @return bool
+     */
+    protected function include_capability_in_risk_filter($capability): bool {
+        $parentpermission = $this->parentpermissions[$capability->name] ?? CAP_INHERIT;
+        if ($parentpermission == CAP_PROHIBIT) {
+            return false;
+        }
+
+        $permission = $this->permissions[$capability->name] ?? CAP_INHERIT;
+        if ($permission == CAP_INHERIT) {
+            $permission = $parentpermission;
+        }
+
+        return $permission == CAP_ALLOW;
+    }
+
     protected function add_permission_cells($capability) {
         $disabled = '';
         if ($capability->locked || $this->parentpermissions[$capability->name] == CAP_PROHIBIT) {

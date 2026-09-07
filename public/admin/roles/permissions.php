@@ -224,6 +224,7 @@ $PAGE->requires->strings_for_js(
                                     'confirmunassignno', 'deletexrole'), 'core_role');
 $PAGE->requires->js_call_amd('core/permissionmanager', 'initialize', array($arguments));
 $table = new core_role_permissions_table($context, $contextname, $allowoverrides, $allowsafeoverrides, $overridableroles);
+$table->set_filter_url($PAGE->url);
 echo $OUTPUT->box_start('generalbox capbox');
 // Print link to advanced override page.
 if ($overridableroles) {

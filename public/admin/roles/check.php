@@ -141,8 +141,12 @@ echo $OUTPUT->heading($title);
 if (!is_null($reportuser)) {
     echo $OUTPUT->box_start('generalbox boxaligncenter boxwidthwide');
 
+    $name = fullname($reportuser);
+    if (is_siteadmin($reportuser)) {
+        $name .= ' (' . get_string('siteadministrator', 'core_role') . ')';
+    }
     if (!empty($roleassignments)) {
-        echo $OUTPUT->heading(get_string('rolesforuser', 'core_role', fullname($reportuser)), 3);
+        echo $OUTPUT->heading(get_string('rolesforuser', 'core_role', $name), 3);
         echo html_writer::start_tag('ul');
 
         $systemcontext = context_system::instance();
@@ -162,8 +166,9 @@ if (!is_null($reportuser)) {
         echo html_writer::end_tag('ul');
     }
 
-    echo $OUTPUT->heading(get_string('permissionsforuser', 'core_role', fullname($reportuser)), 3);
+    echo $OUTPUT->heading(get_string('permissionsforuser', 'core_role', $name), 3);
     $table = new core_role_check_capability_table($context, $reportuser, $contextname);
+    $table->set_filter_url(new moodle_url($url, ['reportuser' => $reportuser->id]));
     $table->display();
     echo $OUTPUT->box_end();
 

@@ -41,6 +41,8 @@ abstract class core_role_capability_table_with_risks extends core_role_capabilit
     protected $permissions;
     protected $changed;
     protected $roleid;
+    /** @var moodle_url The URL for risk filter links. */
+    protected $filterurl;
 
     public function __construct($context, $id, $roleid) {
         parent::__construct($context, $id);
@@ -132,7 +134,140 @@ abstract class core_role_capability_table_with_risks extends core_role_capabilit
                 $this->parentpermissions[$cap->name] = CAP_INHERIT;
             }
         }
+
+        $this->display_risks_summary();
         parent::display();
+    }
+
+    /**
+     * Render risk summary content before the capability table.
+     */
+    protected function display_risks_summary(): void {
+        global $OUTPUT;
+
+        if ($risks = $this->get_role_risks_info()) {
+            echo $OUTPUT->box($risks, 'generalbox');
+        }
+    }
+
+    /**
+     * Set the URL used for risk filter links.
+     *
+     * @param moodle_url|string $url The URL to use for filter links.
+     */
+    public function set_filter_url($url) {
+        $this->filterurl = new moodle_url($url);
+    }
+
+    /**
+     * Returns role risks and the number of risky capabilities
+     *
+     * @return array of risks
+     */
+    protected function get_role_risks() {
+        $allrisks = get_all_risks();
+        $risks = array_fill_keys(array_keys($allrisks), 0);
+        foreach ($this->capabilities as $capability) {
+            if (!$this->include_capability_in_risk_filter($capability)) {
+                continue;
+            }
+            foreach ($allrisks as $type => $risk) {
+                if ($risk & (int)$capability->riskbitmask) {
+                    $risks[$type]++;
+                }
+            }
+        }
+        return $risks;
+    }
+
+    /**
+     * Whether a capability should be included in risk-filtered rows and counts.
+     *
+     * @param stdClass $capability Capability row object.
+     * @return bool
+     */
+    protected function include_capability_in_risk_filter($capability): bool {
+        return true;
+    }
+
+    /**
+     * Returns HTML with risk summary and risk filter links.
+     *
+     * @return string
+     */
+    protected function get_role_risks_info() {
+        global $OUTPUT;
+
+        // Only output risk info when we can filter by risks.
+        if (!isset($this->filterurl)) {
+            return '';
+        }
+
+        $html = '';
+        $filter = optional_param('risk', '', PARAM_TEXT);
+        $allrisks = get_all_risks();
+        if ($filter && array_key_exists($filter, $allrisks)) {
+            $reseturl = clone $this->filterurl;
+            $reseturl->remove_params('risk');
+            $riskname = get_string($filter . 'short', 'admin');
+            $html .= $OUTPUT->notification(
+                get_string('risksfilter', 'role', [
+                    'riskname' => $riskname,
+                    'reseturl' => $reseturl,
+                ]),
+                core\output\notification::NOTIFY_INFO
+            );
+        }
+
+        $riskcount = 0;
+        $risks = $this->get_role_risks();
+        foreach ($risks as $type => $count) {
+            $riskcount += $count;
+            if ($count == 0) {
+                continue;
+            }
+            $pixicon = new pix_icon('/i/' . str_replace('risk', 'risk_', $type), get_string($type . 'short', 'admin'));
+            $icon = $OUTPUT->render($pixicon);
+            $text = get_string($type . 'short', 'admin');
+            $html .= "<b>$icon $text</b> ";
+            $riskurl = clone $this->filterurl;
+            $riskurl->param('risk', $type);
+            $html .= html_writer::tag(
+                'small',
+                $OUTPUT->action_link($riskurl, get_string('risksfilterwithcount', 'role', $count))
+            );
+            $html .= html_writer::tag('p', get_string($type, 'admin'), ['class' => 'ml-5']);
+        }
+
+        if ($riskcount == 0) {
+            return '';
+        }
+
+        $html .= $OUTPUT->doc_link(get_docs_url(s(get_string('risks', 'core_role'))), get_string('morehelp'));
+        return $html;
+    }
+
+    /**
+     * Filter to just capabilities with a certain risk.
+     *
+     * @param stdClass $capability
+     * @return bool true if the row should be skipped.
+     */
+    protected function skip_row($capability) {
+        $filter = optional_param('risk', '', PARAM_TEXT);
+        $allrisks = get_all_risks();
+        if ($filter && array_key_exists($filter, $allrisks)) {
+            $bit = $allrisks[$filter];
+            if (!($bit & (int)$capability->riskbitmask)) {
+                return true;
+            }
+
+            if (!$this->include_capability_in_risk_filter($capability)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     protected function add_header_cells() {
@@ -172,7 +307,7 @@ abstract class core_role_capability_table_with_risks extends core_role_capabilit
     }
 
     /**
-     * Print a risk icon, as a link to the Risks page on Moodle Docs.
+     * Print a risk icon.
      *
      * @param string $type the type of risk, will be one of the keys from the
      *      get_all_risks array. Must start with 'risk'.
@@ -180,15 +315,11 @@ abstract class core_role_capability_table_with_risks extends core_role_capabilit
     public function get_risk_icon($type) {
         global $OUTPUT;
 
-        $alt = get_string("{$type}short", "admin");
-        $title = get_string($type, "admin");
-
-        $text = $OUTPUT->pix_icon('i/' . str_replace('risk', 'risk_', $type), $alt, 'moodle', [
-                'title' => $title,
-            ]);
-        $action = new popup_action('click', $this->risksurl, 'docspopup');
-        $riskicon = $OUTPUT->action_link($this->risksurl, $text, $action);
-
-        return $riskicon;
+        return $OUTPUT->pix_icon(
+            '/i/' . str_replace('risk', 'risk_', $type),
+            get_string($type . 'short', 'admin'),
+            'moodle',
+            ['title' => get_string($type, "admin")],
+        );
     }
 }

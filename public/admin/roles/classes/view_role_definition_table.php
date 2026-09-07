@@ -70,113 +70,20 @@ class core_role_view_role_definition_table extends core_role_define_role_table_a
     }
 
     /**
-     * Returns role risks and the number of risky capabilities
-     *
-     * @return array of risks
-     */
-    public function get_role_risks() {
-
-        if (empty($this->roleid)) {
-            return '';
-        }
-
-        $allrisks = get_all_risks();
-        $risks = array_fill_keys(array_keys($allrisks), 0);
-        foreach ($this->capabilities as $capability) {
-            $perm = $this->permissions[$capability->name];
-            if ($perm != CAP_ALLOW) {
-                continue;
-            }
-            foreach ($allrisks as $type => $risk) {
-                if ($risk & (int)$capability->riskbitmask) {
-                    $risks[$type]++;
-                }
-            }
-        }
-        return $risks;
-    }
-
-    /**
-     * Returns HTML risk icons.
-     *
-     * @return string
-     */
-    public function get_role_risks_info() {
-        global $OUTPUT, $CFG;
-
-        $html = '';
-        $filter = optional_param('risk', '', PARAM_TEXT);
-        $allrisks = get_all_risks();
-        if ($filter && array_key_exists($filter, $allrisks)) {
-            $riskname = get_string($filter . 'short', 'admin');
-            $html .= $OUTPUT->notification(
-                get_string('risksfilter', 'role', [
-                    'riskname' => $riskname,
-                    'reseturl' => new \moodle_url('/admin/roles/define.php', [
-                            'action' => 'view',
-                            'roleid' => $this->roleid,
-                        ]),
-                ]),
-                core\output\notification::NOTIFY_INFO
-            );
-        }
-
-        $riskcount = 0;
-        $risks = $this->get_role_risks();
-        foreach ($risks as $type => $count) {
-            $riskcount += $count;
-            if ($count == 0) {
-                continue;
-            }
-            $filterurl = new \moodle_url('/admin/roles/define.php', [
-                'action' => 'view',
-                'roleid' => $this->roleid,
-                'risk' => $type,
-            ]);
-            $pixicon = new pix_icon('/i/' . str_replace('risk', 'risk_', $type), get_string($type . 'short', 'admin'));
-            $icon = $OUTPUT->render($pixicon);
-            $text = get_string($type . 'short', 'admin');
-            $html .= "<b>$icon $text</b> ";
-            $html .= html_writer::tag(
-                'small',
-                $OUTPUT->action_link($filterurl, get_string('risksfilterwithcount', 'role', $count))
-            );
-            $html .= html_writer::tag('p', get_string($type, 'admin'), ['class' => 'ml-5']);
-        }
-
-        if ($riskcount == 0) {
-            return '';
-        }
-
-        $html .= $OUTPUT->doc_link(get_docs_url(s(get_string('risks', 'core_role'))), get_string('morehelp'));
-        return $html;
-    }
-
-    /**
      * Returns true if the row should be skipped.
      *
      * @param string $capability
      * @return bool
      */
     protected function skip_row($capability) {
-
-        // Filter to just capabilities with a certain risk.
-        $filter = optional_param('risk', '', PARAM_TEXT);
-        $allrisks = get_all_risks();
-        if ($filter && array_key_exists($filter, $allrisks)) {
-            $bit = $allrisks[$filter];
-            if (!($bit & (int)$capability->riskbitmask)) {
-                return true;
-            }
-        }
-
         $perm = $this->permissions[$capability->name];
         if ($perm == CAP_INHERIT) {
             // Do not print empty rows in role overview, admins need to know quickly what is allowed and prohibited,
             // if they want to see the list of all capabilities they can go to edit role page.
             return true;
         }
-        parent::skip_row($capability);
+
+        return parent::skip_row($capability);
     }
 
     protected function add_permission_cells($capability) {

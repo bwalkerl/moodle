@@ -164,6 +164,7 @@ if (!is_null($reportuser)) {
 
     echo $OUTPUT->heading(get_string('permissionsforuser', 'core_role', fullname($reportuser)), 3);
     $table = new core_role_check_capability_table($context, $reportuser, $contextname);
+    $table->set_filter_url(new moodle_url($url, ['reportuser' => $reportuser->id]));
     $table->display();
     echo $OUTPUT->box_end();
 

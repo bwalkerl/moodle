@@ -626,15 +626,6 @@ class core_role_define_role_table_advanced extends core_role_capability_table_wi
     }
 
     /**
-     * Returns information about the risks associated with a role.
-     *
-     * @return string
-     */
-    protected function get_role_risks_info() {
-        return '';
-    }
-
-    /**
      * Print labels, fields and help icon on role administration page.
      *
      * @param string $name The field name.

@@ -313,7 +313,7 @@ class icon_system_fontawesome extends icon_system_font {
             'core:i/restore' => 'fa-trash-can-arrow-up',
             'core:i/return' => 'fa-arrow-left',
             'core:i/risk_config' => 'fa-triangle-exclamation text-muted',
-            'core:i/risk_dataloss' => 'fa-triangle-exclamation text-danger',
+            'core:i/risk_dataloss' => 'fa-triangle-exclamation text-warning',
             'core:i/risk_managetrust' => 'fa-triangle-exclamation text-warning',
             'core:i/risk_personal' => 'fa-triangle-exclamation text-info',
             'core:i/risk_spam' => 'fa-triangle-exclamation text-primary',

@@ -29,7 +29,7 @@ defined('MOODLE_INTERNAL') || die();
  *
  * We have one additional column, Allowed, which contains yes/no.
  */
-class core_role_check_capability_table extends core_role_capability_table_base {
+class core_role_check_capability_table extends core_role_capability_table_with_risks {
     protected $user;
     protected $fullname;
     protected $contextname;
@@ -44,7 +44,7 @@ class core_role_check_capability_table extends core_role_capability_table_base {
      * @param string $contextname $context->get_context_name() - to save recomputing.
      */
     public function __construct($context, $user, $contextname) {
-        parent::__construct($context, 'explaincaps');
+        parent::__construct($context, 'explaincaps', 0);
         $this->user = $user;
         $this->fullname = fullname($user);
         $this->contextname = $contextname;
@@ -53,12 +53,41 @@ class core_role_check_capability_table extends core_role_capability_table_base {
         $this->add_classes(['table-striped']);
     }
 
+    /**
+     * Loads parent permissions.
+     */
+    protected function load_parent_permissions() {
+        $this->parentpermissions = [];
+    }
+
+    /**
+     * Count the risky capabilities available to the selected user.
+     *
+     * @return array
+     */
+    protected function get_role_risks() {
+        $allrisks = get_all_risks();
+        $risks = array_fill_keys(array_keys($allrisks), 0);
+        foreach ($this->capabilities as $capability) {
+            if (!has_capability($capability->name, $this->context, $this->user->id)) {
+                continue;
+            }
+            foreach ($allrisks as $type => $risk) {
+                if ($risk & (int)$capability->riskbitmask) {
+                    $risks[$type]++;
+                }
+            }
+        }
+        return $risks;
+    }
+
     protected function add_header_cells() {
         echo '<th>' . get_string('allowed', 'core_role') . '</th>';
+        echo '<th class="risk" colspan="' . count($this->allrisks) . '" scope="col">' . get_string('risks', 'core_role') . '</th>';
     }
 
     protected function num_extra_columns() {
-        return 1;
+        return 1 + count($this->allrisks);
     }
 
     protected function get_row_classes($capability) {
@@ -70,16 +99,24 @@ class core_role_check_capability_table extends core_role_capability_table_base {
         }
     }
 
-    protected function add_row_cells($capability) {
-        if ($this->hascap) {
-            $result = $this->stryes;
-        } else {
-            $result = $this->strno;
-        }
-        $a = new stdClass;
-        $a->fullname = $this->fullname;
-        $a->capability = $capability->name;
-        $a->context = $this->contextname;
-        return '<td>' . $result . '</td>';
+    /**
+     * Only include capabilities the selected user actually has when filtering by risk.
+     *
+     * @param stdClass $capability The capability being checked.
+     * @return bool
+     */
+    protected function include_capability_in_risk_filter($capability): bool {
+        return has_capability($capability->name, $this->context, $this->user->id);
+    }
+
+    /**
+     * Output the permission cells for this capability.
+     *
+     * @param stdClass $capability the capability this row relates to.
+     * @return string html of permission cells
+     */
+    protected function add_permission_cells($capability) {
+        $content = $this->hascap ? $this->stryes : $this->strno;
+        return '<td>' . $content . '</td>';
     }
 }

@@ -27,13 +27,14 @@ defined('MOODLE_INTERNAL') || die();
 /**
  * Subclass of core_role_capability_table_base for use on the Permissions page.
  */
-class core_role_permissions_table extends core_role_capability_table_base {
+class core_role_permissions_table extends core_role_capability_table_with_risks {
     protected $contextname;
     protected $allowoverrides;
     protected $allowsafeoverrides;
     protected $overridableroles;
     protected $roles;
-    protected $icons = array();
+    /** @var array[] Per-capability cache of roles with/without access in current context. */
+    protected $capabilityroles = [];
 
     /**
      * Constructor.
@@ -44,7 +45,7 @@ class core_role_permissions_table extends core_role_capability_table_base {
      * @param array $overridableroles
      */
     public function __construct($context, $contextname, $allowoverrides, $allowsafeoverrides, $overridableroles) {
-        parent::__construct($context, 'permissions');
+        parent::__construct($context, 'permissions', 0);
         $this->contextname = $contextname;
         $this->allowoverrides = $allowoverrides;
         $this->allowsafeoverrides = $allowsafeoverrides;
@@ -55,17 +56,30 @@ class core_role_permissions_table extends core_role_capability_table_base {
 
     }
 
+    /**
+     * Load parent permissions.
+     */
+    protected function load_parent_permissions() {
+        $this->parentpermissions = [];
+    }
+
     protected function add_header_cells() {
-        echo '<th>' . get_string('risks', 'core_role') . '</th>';
+        echo '<th class="risk" colspan="' . count($this->allrisks) . '" scope="col">' . get_string('risks', 'core_role') . '</th>';
         echo '<th>' . get_string('neededroles', 'core_role') . '</th>';
         echo '<th>' . get_string('prohibitedroles', 'core_role') . '</th>';
     }
 
     protected function num_extra_columns() {
-        return 3;
+        return count($this->allrisks) + 2;
     }
 
-    protected function add_row_cells($capability) {
+    /**
+     * Output the permission cells for this capability.
+     *
+     * @param stdClass $capability the capability this row relates to.
+     * @return string html of permission cells
+     */
+    protected function add_permission_cells($capability) {
         global $OUTPUT, $PAGE;
         $renderer = $PAGE->get_renderer('core');
         $adminurl = new moodle_url("/admin/");
@@ -77,7 +91,7 @@ class core_role_permissions_table extends core_role_capability_table_base {
         $overridableroles = $this->overridableroles;
         $roles = $this->roles;
 
-        list($needed, $forbidden) = get_roles_with_cap_in_context($context, $capability->name);
+        [$needed, $forbidden] = $this->get_capability_roles($capability);
         $neededroles    = array();
         $forbiddenroles = array();
         $allowable      = $overridableroles;
@@ -132,33 +146,53 @@ class core_role_permissions_table extends core_role_capability_table_base {
             $forbiddenroles .= html_writer::div($prohibiticon, 'prohibitmore');
         }
 
-        $risks = $this->get_risks($capability);
-
-        $contents = html_writer::tag('td', $risks, array('class' => 'risks text-nowrap'));
-        $contents .= html_writer::tag('td', $neededroles, array('class' => 'allowedroles'));
+        $contents = html_writer::tag('td', $neededroles, ['class' => 'allowedroles']);
         $contents .= html_writer::tag('td', $forbiddenroles, array('class' => 'forbiddenroles'));
         return $contents;
     }
 
-    protected function get_risks($capability) {
-        global $OUTPUT;
-
-        $allrisks = get_all_risks();
-        $risksurl = new moodle_url(get_docs_url(s(get_string('risks', 'core_role'))));
-
-        $return = '';
-
-        foreach ($allrisks as $type => $risk) {
-            if ($risk & (int)$capability->riskbitmask) {
-                if (!isset($this->icons[$type])) {
-                    $pixicon = new pix_icon('/i/' . str_replace('risk', 'risk_', $type), get_string($type . 'short', 'admin'));
-                    $this->icons[$type] = $OUTPUT->action_icon($risksurl, $pixicon, new popup_action('click', $risksurl));
-                }
-                $return .= $this->icons[$type];
-            }
+    /**
+     * Returns role capability data for this context and capability.
+     *
+     * @param stdClass $capability the capability being rendered.
+     * @return array
+     */
+    protected function get_capability_roles($capability): array {
+        if (!array_key_exists($capability->name, $this->capabilityroles)) {
+            $this->capabilityroles[$capability->name] = get_roles_with_cap_in_context($this->context, $capability->name);
         }
 
-        return $return;
+        return $this->capabilityroles[$capability->name];
+    }
+
+    /**
+     * Only include capabilities that at least one role is allowed to perform.
+     *
+     * @param stdClass $capability the capability being checked.
+     * @return bool
+     */
+    protected function include_capability_in_risk_filter($capability): bool {
+        [$needed, $forbidden] = $this->get_capability_roles($capability);
+        return !empty($needed);
+    }
+
+    /**
+     * Output the data cells for this capability.
+     *
+     * @param stdClass $capability the capability this row relates to.
+     * @return string html of row cells
+     */
+    protected function add_row_cells($capability) {
+        $cells = '';
+        foreach ($this->allrisks as $riskname => $risk) {
+            $cells .= '<td class="risk ' . str_replace('risk', '', $riskname) . '">';
+            if ($risk & (int)$capability->riskbitmask) {
+                $cells .= $this->get_risk_icon($riskname);
+            }
+            $cells .= '</td>';
+        }
+
+        return $cells . $this->add_permission_cells($capability);
     }
 
     /**

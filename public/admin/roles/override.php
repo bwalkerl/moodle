@@ -131,6 +131,7 @@ if (empty($overridableroles[$roleid])) {
 
 // If we are actually overriding a role, create the table object, and save changes if appropriate.
 $overridestable = new core_role_override_permissions_table_advanced($context, $roleid, $safeoverridesonly);
+$overridestable->set_filter_url($PAGE->url);
 $overridestable->read_submitted_permissions();
 
 if (optional_param('savechanges', false, PARAM_BOOL) && confirm_sesskey()) {
@@ -143,6 +144,46 @@ if (optional_param('savechanges', false, PARAM_BOOL) && confirm_sesskey()) {
 // Finally start page output.
 echo $OUTPUT->header();
 echo $OUTPUT->heading_with_help($title, 'overridepermissions', 'core_role');
+
+// Display contexts where inherited permissions are set.
+$contextpath = [];
+$contextnode = $context;
+while ($contextnode) {
+    $overridecount = $DB->count_records('role_capabilities', ['roleid' => $roleid, 'contextid' => $contextnode->id]);
+    // Only display contexts that set permissions.
+    if (!$overridecount && $contextnode != $context) {
+        $contextnode = $contextnode->get_parent_context();
+        continue;
+    }
+
+    // Add a count for number of permissions (overrides).
+    $displaytext = $contextnode->get_context_name() . ' (' . $overridecount . ')';
+    $link = null;
+    if ($contextnode->contextlevel == CONTEXT_SYSTEM) {
+        $canviewparent = has_capability('moodle/role:manage', $contextnode);
+        if ($canviewparent) {
+            $link = new moodle_url('/admin/roles/define.php', [
+                'action' => 'view',
+                'roleid' => $roleid,
+            ]);
+        }
+    } else if ($contextnode != $context) {
+        $canviewparent = has_capability('moodle/role:override', $contextnode)
+            || has_capability('moodle/role:safeoverride', $contextnode);
+        if ($canviewparent) {
+            $link = new moodle_url('/admin/roles/override.php', [
+                'contextid' => $contextnode->id,
+                'roleid' => $roleid,
+            ]);
+        }
+    }
+
+    $contextpath[] = isset($link) ? html_writer::link($link, $displaytext) : $displaytext;
+    $contextnode = $contextnode->get_parent_context();
+}
+
+$contextpath = array_reverse($contextpath);
+echo html_writer::tag('p', implode(' / ', $contextpath), ['class' => 'parentcontext']);
 
 // Show UI for overriding roles.
 if (!empty($capabilities)) {

@@ -45,6 +45,7 @@ if ($action) {
 // Get the base URL for this and related pages into a convenient variable.
 $baseurl = $CFG->wwwroot . '/' . $CFG->admin . '/roles/manage.php';
 $defineurl = $CFG->wwwroot . '/' . $CFG->admin . '/roles/define.php';
+$assignmentsurl = $CFG->wwwroot . '/' . $CFG->admin . '/roles/assignments.php';
 
 admin_externalpage_setup('defineroles');
 
@@ -211,7 +212,11 @@ foreach ($roles as $role) {
     $row[] = html_writer::tag('nobr', $riskicons);
     $row[] = '<a href="' . $defineurl . '?action=view&amp;roleid=' . $role->id . '">' . $role->localname . '</a>';
     $row[] = role_get_description($role);
-    $row[] = $role->count;
+    if (!empty($role->count)) {
+        $row[] = html_writer::link(new moodle_url($assignmentsurl, ['roleid' => $role->id]), $role->count);
+    } else {
+        $row[] = $role->count;
+    }
     $row[] = s($role->shortname);
 
     $actions = '';

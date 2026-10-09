@@ -79,6 +79,12 @@ abstract class gradingform_controller {
     /** @var boolean|null cached result of function has_active_instances() */
     protected $hasactiveinstances = null;
 
+    /** @var bool whether multiple raters are allowed for this grading area */
+    protected $allowmultipleraters = false;
+
+    /** @var callable|null custom sort callback for sorting multiple instances */
+    protected $instancessort = null;
+
     /**
      * Do not instantinate this directly, use {@link grading_manager::get_controller()}
      *
@@ -394,11 +400,17 @@ abstract class gradingform_controller {
                 'status1'  => gradingform_instance::INSTANCE_STATUS_ACTIVE,
                 'status2'  => gradingform_instance::INSTANCE_STATUS_NEEDUPDATE);
         $select = 'definitionid=:definitionid and itemid=:itemid and (status=:status1 or status=:status2)';
-        if (false) {
-            // TODO MDL-31237 should be: if ($manager->allow_multiple_raters())
+        if ($this->allow_multiple_raters()) {
             $select .= ' and raterid=:raterid';
             $params['raterid'] = $raterid;
         }
+        $count = $DB->count_records_select('grading_instances', $select, $params);
+        if ($count !== 1) {
+            // There is an edge case where multiple raters were supported, but no longer are.
+            // In this case we want to leave active instances as is until they are updated.
+            return null;
+        }
+
         if ($idonly) {
             if ($current = $DB->get_record_select('grading_instances', $select, $params, 'id', IGNORE_MISSING)) {
                 return $current->id;
@@ -429,6 +441,11 @@ abstract class gradingform_controller {
             $rv[] = $this->get_instance($record);
         }
         $records->close();
+
+        if (isset($this->instancessort)) {
+            usort($rv, $this->instancessort);
+        }
+
         return $rv;
     }
 
@@ -450,6 +467,11 @@ abstract class gradingform_controller {
         foreach ($records as $record) {
             $rv[] = $this->get_instance($record);
         }
+
+        if (isset($this->instancessort)) {
+            usort($rv, $this->instancessort);
+        }
+
         return $rv;
     }
 
@@ -489,6 +511,36 @@ abstract class gradingform_controller {
             return new $class($this, $instance);
         }
         return null;
+    }
+
+    /**
+     * Returns the most recent archived instance for a given rater and itemid.
+     *
+     * @param int $raterid
+     * @param int $itemid
+     * @return gradingform_instance|null
+     */
+    public function get_latest_archived_instance(int $raterid, int $itemid): ?gradingform_instance {
+        global $DB;
+
+        if (empty($this->definition->id)) {
+            return null;
+        }
+
+        $select = 'definitionid = :definitionid AND itemid = :itemid AND raterid = :raterid AND status = :status';
+        $params = [
+            'definitionid' => $this->definition->id,
+            'itemid' => $itemid,
+            'raterid' => $raterid,
+            'status' => gradingform_instance::INSTANCE_STATUS_ARCHIVE,
+        ];
+        $records = $DB->get_records_select('grading_instances', $select, $params, 'timemodified DESC', '*', 0, 1);
+        if (!$records) {
+            return null;
+        }
+
+        $latest = reset($records);
+        return $latest ? $this->get_instance($latest) : null;
     }
 
     /**
@@ -683,6 +735,34 @@ abstract class gradingform_controller {
      */
     public function render_grade($page, $itemid, $gradinginfo, $defaultcontent, $cangrade) {
         return $defaultcontent;
+    }
+
+    /**
+     * Check if multiple raters are allowed for this grading area.
+     * When true, each rater will have independent grading instances.
+     *
+     * @return bool true if multiple raters are supported, false for single rater only
+     */
+    public function allow_multiple_raters(): bool {
+        return $this->allowmultipleraters;
+    }
+
+    /**
+     * Set whether multiple raters are allowed for this grading area.
+     *
+     * @param bool $allow true to allow multiple independent rater instances
+     */
+    public function set_allow_multiple_raters(bool $allow): void {
+        $this->allowmultipleraters = $allow;
+    }
+
+    /**
+     * Set a custom sort callback for sorting instances.
+     *
+     * @param callable|null $sortcallback comparison function for usort, or null to disable sorting
+     */
+    public function set_instances_sort(?callable $sortcallback): void {
+        $this->instancessort = $sortcallback;
     }
 
     /**
@@ -928,6 +1008,31 @@ abstract class gradingform_instance {
         }
         $DB->update_record('grading_instances', array('id' => $this->get_id(), 'status' => self::INSTANCE_STATUS_ACTIVE));
         $this->data->status = self::INSTANCE_STATUS_ACTIVE;
+    }
+
+    /**
+     * Marks the current instance as ARCHIVE status.
+     */
+    public function archive(): void {
+        global $DB;
+
+        if ($this->data->status == self::INSTANCE_STATUS_ARCHIVE) {
+            return;
+        }
+
+        $DB->update_record('grading_instances', ['id' => $this->get_id(), 'status' => self::INSTANCE_STATUS_ARCHIVE]);
+        $this->data->status = self::INSTANCE_STATUS_ARCHIVE;
+    }
+
+    /**
+     * Restore the current archived instance back to ACTIVE status.
+     */
+    public function restore(): void {
+        if ($this->data->status != self::INSTANCE_STATUS_ARCHIVE) {
+            return;
+        }
+
+        $this->make_active();
     }
 
     /**

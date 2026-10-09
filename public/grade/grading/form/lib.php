@@ -79,6 +79,18 @@ abstract class gradingform_controller {
     /** @var boolean|null cached result of function has_active_instances() */
     protected $hasactiveinstances = null;
 
+    /** @var bool whether multiple raters are allowed for this grading area */
+    protected $allowmultipleraters = false;
+
+    /** @var bool whether rater identities should be displayed as a label */
+    protected $displayrateridentity = false;
+
+    /** @var string[] custom rater labels, keyed by rater id */
+    protected $raterlabels = [];
+
+    /** @var int[] rater ids in the order their instances should be returned */
+    protected $raterorder = [];
+
     /**
      * Do not instantinate this directly, use {@link grading_manager::get_controller()}
      *
@@ -394,21 +406,47 @@ abstract class gradingform_controller {
                 'status1'  => gradingform_instance::INSTANCE_STATUS_ACTIVE,
                 'status2'  => gradingform_instance::INSTANCE_STATUS_NEEDUPDATE);
         $select = 'definitionid=:definitionid and itemid=:itemid and (status=:status1 or status=:status2)';
-        if (false) {
-            // TODO MDL-31237 should be: if ($manager->allow_multiple_raters())
+        if ($this->allow_multiple_raters()) {
             $select .= ' and raterid=:raterid';
             $params['raterid'] = $raterid;
         }
-        if ($idonly) {
-            if ($current = $DB->get_record_select('grading_instances', $select, $params, 'id', IGNORE_MISSING)) {
-                return $current->id;
-            }
-        } else {
-            if ($current = $DB->get_record_select('grading_instances', $select, $params, '*', IGNORE_MISSING)) {
-                return $this->get_instance($current);
-            }
+
+        $instances = $DB->get_records_select('grading_instances', $select, $params, 'timemodified DESC, id DESC');
+        if (count($instances) > 1 && !$this->allow_multiple_raters()) {
+            // There is an edge case when multiple rater support has recently been disabled.
+            // In this case we want to leave active instances as is unless they are updated.
+            // Prefer the rater's own instance, otherwise fall back to the most recent as with a single rater.
+            $raterinstances = array_filter($instances, fn($instance) => $instance->raterid == $raterid);
+            $instances = $raterinstances ?: $instances;
         }
-        return null;
+
+        if (empty($instances)) {
+            return null;
+        }
+
+        $current = reset($instances);
+        return $idonly ? $current->id : $this->get_instance($current);
+    }
+
+    /**
+     * Returns list of current (ACTIVE or NEEDUPDATE) instances for the specified $itemid.
+     *
+     * @param int $itemid
+     * @return gradingform_instance[]
+     */
+    public function get_current_instances(int $itemid): array {
+        global $DB;
+        $select = 'definitionid = :definitionid and itemid = :itemid and (status = :status1 or status = :status2)';
+        $params = [
+            'definitionid' => $this->definition->id,
+            'itemid' => $itemid,
+            'status1' => gradingform_instance::INSTANCE_STATUS_ACTIVE,
+            'status2' => gradingform_instance::INSTANCE_STATUS_NEEDUPDATE,
+        ];
+        $records = $DB->get_records_select('grading_instances', $select, $params, 'id');
+        $rv = array_values(array_map(fn($record) => $this->get_instance($record), $records));
+
+        return $this->sort_instances_by_rater($rv);
     }
 
     /**
@@ -423,13 +461,14 @@ abstract class gradingform_controller {
         $conditions = array('definitionid'  => $this->definition->id,
                     'itemid' => $itemid,
                     'status'  => gradingform_instance::INSTANCE_STATUS_ACTIVE);
-        $records = $DB->get_recordset('grading_instances', $conditions);
+        $records = $DB->get_recordset('grading_instances', $conditions, 'id');
         $rv = array();
         foreach ($records as $record) {
             $rv[] = $this->get_instance($record);
         }
         $records->close();
-        return $rv;
+
+        return $this->sort_instances_by_rater($rv);
     }
 
     /**
@@ -572,6 +611,38 @@ abstract class gradingform_controller {
     }
 
     /**
+     * Attempts to restore the most recent archived instance for a given rater and itemid.
+     * This is only allowed when there is no current instance.
+     *
+     * @param int $raterid
+     * @param int $itemid
+     * @return bool True if a previous instance was restored
+     */
+    public function restore_previous_instance(int $raterid, int $itemid): bool {
+        global $DB;
+
+        if (empty($this->definition->id) || $this->get_current_instance($raterid, $itemid)) {
+            return false;
+        }
+
+        $select = 'definitionid = :definitionid AND itemid = :itemid AND raterid = :raterid AND status = :status';
+        $params = [
+            'definitionid' => $this->definition->id,
+            'itemid' => $itemid,
+            'raterid' => $raterid,
+            'status' => gradingform_instance::INSTANCE_STATUS_ARCHIVE,
+        ];
+        $records = $DB->get_records_select('grading_instances', $select, $params, 'timemodified DESC, id DESC', '*', 0, 1);
+        if (empty($records)) {
+            return false;
+        }
+
+        $latest = reset($records);
+        $this->get_instance($latest)->restore();
+        return true;
+    }
+
+    /**
      * Returns the HTML code displaying the preview of the grading form
      *
      * Plugins are forced to override this. Ideally they should delegate
@@ -683,6 +754,102 @@ abstract class gradingform_controller {
      */
     public function render_grade($page, $itemid, $gradinginfo, $defaultcontent, $cangrade) {
         return $defaultcontent;
+    }
+
+    /**
+     * Check if multiple raters are allowed for this grading area.
+     * When true, each rater will have independent grading instances.
+     *
+     * @return bool true if multiple raters are supported, false for single rater only
+     */
+    public function allow_multiple_raters(): bool {
+        return $this->allowmultipleraters;
+    }
+
+    /**
+     * Set whether multiple raters are allowed for this grading area.
+     *
+     * @param bool $allow true to allow multiple independent rater instances
+     */
+    public function set_allow_multiple_raters(bool $allow): void {
+        $this->allowmultipleraters = $allow;
+    }
+
+    /**
+     * Check if rater identities should be displayed as a label.
+     *
+     * @return bool
+     */
+    public function display_rater_identity(): bool {
+        return $this->displayrateridentity;
+    }
+
+    /**
+     * Set whether rater identities should be displayed as a label.
+     *
+     * @param bool $display
+     */
+    public function set_display_rater_identity(bool $display): void {
+        $this->displayrateridentity = $display;
+    }
+
+    /**
+     * Set custom labels to display for raters.
+     *
+     * @param string[] $labels labels to display for raters, keyed by rater id.
+     */
+    public function set_rater_labels(array $labels): void {
+        $this->raterlabels = $labels;
+    }
+
+    /**
+     * Get the current label for a rater. Custom labels will be preferred, followed by rater identities.
+     *
+     * @param int $raterid
+     * @return string rater label, or an empty string.
+     */
+    public function get_rater_label(int $raterid): string {
+        global $OUTPUT;
+
+        if (array_key_exists($raterid, $this->raterlabels)) {
+            return $this->raterlabels[$raterid];
+        }
+
+        if ($this->display_rater_identity() && $rater = \core_user::get_user($raterid)) {
+            $viewfullnames = has_capability('moodle/site:viewfullnames', $this->get_context());
+            return $OUTPUT->user_picture($rater) . fullname($rater, $viewfullnames);
+        }
+
+        return '';
+    }
+
+    /**
+     * Set the order in which instances from multiple raters are returned for an item.
+     *
+     * Instances from raters not in the list are returned after those that are, in their original order.
+     *
+     * @param int[] $raterids rater ids in display order, or an empty array to use the default order
+     */
+    public function set_rater_order(array $raterids): void {
+        $this->raterorder = array_values($raterids);
+    }
+
+    /**
+     * Sort instances for an item by the configured rater order.
+     *
+     * @param gradingform_instance[] $instances
+     * @return gradingform_instance[]
+     */
+    protected function sort_instances_by_rater(array $instances): array {
+        if (empty($this->raterorder)) {
+            return $instances;
+        }
+
+        $positions = array_flip($this->raterorder);
+        usort($instances, fn($first, $second) =>
+            ($positions[$first->get_data('raterid')] ?? PHP_INT_MAX)
+            <=> ($positions[$second->get_data('raterid')] ?? PHP_INT_MAX));
+        return $instances;
     }
 
     /**
@@ -914,20 +1081,68 @@ abstract class gradingform_instance {
      * Marks the instance as ACTIVE and current active instance (if exists) as ARCHIVE
      */
     protected function make_active() {
+        $this->make_current(self::INSTANCE_STATUS_ACTIVE);
+    }
+
+    /**
+     * Marks this instance as current with the provided status and archives all other current instances.
+     *
+     * @param int $status The current instance status to set
+     */
+    protected function make_current(int $status): void {
         global $DB;
-        if ($this->data->status == self::INSTANCE_STATUS_ACTIVE) {
-            // already active
+        if ($this->data->status == $status) {
+            // Already current.
             return;
         }
         if (empty($this->data->itemid)) {
             throw new coding_exception('You cannot mark active the grading instance without itemid');
         }
-        $currentid = $this->get_controller()->get_current_instance($this->data->raterid, $this->data->itemid, true);
-        if ($currentid && $currentid != $this->get_id()) {
-            $DB->update_record('grading_instances', array('id' => $currentid, 'status' => self::INSTANCE_STATUS_ARCHIVE));
+        // Archive current active instances.
+        $controller = $this->get_controller();
+        foreach ($controller->get_current_instances($this->data->itemid) as $instance) {
+            if ($instance->get_id() == $this->get_id()) {
+                continue;
+            }
+            // When multiple raters are allowed each rater has their own current instance.
+            if ($controller->allow_multiple_raters() && $instance->get_data('raterid') != $this->data->raterid) {
+                continue;
+            }
+            $instance->archive();
         }
-        $DB->update_record('grading_instances', array('id' => $this->get_id(), 'status' => self::INSTANCE_STATUS_ACTIVE));
-        $this->data->status = self::INSTANCE_STATUS_ACTIVE;
+
+        $DB->update_record('grading_instances', ['id' => $this->get_id(), 'status' => $status]);
+        $this->data->status = $status;
+    }
+
+    /**
+     * Marks the current instance as ARCHIVE status.
+     */
+    public function archive(): void {
+        global $DB;
+
+        if ($this->data->status == self::INSTANCE_STATUS_ARCHIVE) {
+            return;
+        }
+
+        $DB->update_record('grading_instances', ['id' => $this->get_id(), 'status' => self::INSTANCE_STATUS_ARCHIVE]);
+        $this->data->status = self::INSTANCE_STATUS_ARCHIVE;
+    }
+
+    /**
+     * Restore the current archived instance back to ACTIVE or NEEDUPDATE status.
+     */
+    public function restore(): void {
+        if ($this->data->status != self::INSTANCE_STATUS_ARCHIVE) {
+            return;
+        }
+
+        // We can't infer the previous status of an instance, but we can check if the definition has been updated.
+        // We want to always fall back to NEEDUPDATE when there has been a change to ensure integrity.
+        $status = $this->get_controller()->get_definition()->timemodified > $this->get_data('timemodified')
+            ? self::INSTANCE_STATUS_NEEDUPDATE
+            : self::INSTANCE_STATUS_ACTIVE;
+        $this->make_current($status);
     }
 
     /**

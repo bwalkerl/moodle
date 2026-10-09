@@ -757,8 +757,17 @@ class gradingform_guide_renderer extends plugin_renderer_base {
             $mode = gradingform_guide_controller::DISPLAY_VIEW;
         }
 
-        $output = $this->box($instance->get_controller()->get_formatted_description(), 'gradingform_guide-description').
-                  $this->display_guide($criteria, array(), $options, $mode, 'guide'.$idx, $values);
+        $output = '';
+        if ($idx === 0) {
+            $output = $this->box($instance->get_controller()->get_formatted_description(), 'gradingform_guide-description');
+        }
+
+        $raterid = $instance->get_data('raterid');
+        if ($raterid && $label = $instance->get_controller()->get_rater_label($raterid)) {
+            $output .= $this->box($label);
+        }
+
+        $output .= $this->display_guide($criteria, [], $options, $mode, 'guide' . $idx, $values);
         return $output;
     }
 

@@ -617,10 +617,16 @@ class gradingform_rubric_renderer extends plugin_renderer_base {
             $showdescription = $options['showdescriptionstudent'];
         }
         $output = '';
-        if ($showdescription) {
+        if ($showdescription && $idx === 0) {
             $output .= $this->box($instance->get_controller()->get_formatted_description(), 'gradingform_rubric-description');
         }
-        $output .= $this->display_rubric($criteria, $options, $mode, 'rubric'.$idx, $values);
+
+        $raterid = $instance->get_data('raterid');
+        if ($raterid && $label = $instance->get_controller()->get_rater_label($raterid)) {
+            $output .= $this->box($label);
+        }
+
+        $output .= $this->display_rubric($criteria, $options, $mode, 'rubric' . $idx, $values);
         return $output;
     }
 

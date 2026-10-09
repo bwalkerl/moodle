@@ -1638,11 +1638,7 @@ class assign {
         $update->gradepenalty = $formdata->gradepenalty ?? 0;
 
         // If we are using simple grading and we specify a markercount, update the multi marking values.
-        if (
-            property_exists($formdata, 'markercount')
-            && property_exists($formdata, 'advancedgradingmethod_submissions')
-            && $formdata->advancedgradingmethod_submissions === ''
-        ) {
+        if (property_exists($formdata, 'markercount')) {
             $update->markercount = $formdata->markercount;
             $update->optionalmarkercount = $formdata->optionalmarkercount ?? 0;
             if ($update->markercount + $update->optionalmarkercount > 1) {
@@ -3256,6 +3252,9 @@ class assign {
             return true;
         }
 
+        // Resolve active instances for advanced grading.
+        $this->resolve_active_instances($grade);
+
         if ($this->gradebook_item_update(null, $grade)) {
             \mod_assign\event\submission_graded::create_from_grade($this, $grade)->trigger();
         }
@@ -3275,6 +3274,80 @@ class assign {
         }
 
         return true;
+    }
+
+    /**
+     * Resolves the number and state of active advanced grading instances based on the current
+     * marking configuration. It handles transitions between single marker and multi marker modes
+     * and the advanced grading data that is displayed to the user.
+     *
+     * In order to preserve advanced grading data it is important that this is only called when a
+     * grade is explicitly updated, or when feedback is not visible to the user.
+     *
+     * @param stdClass $grade The grade record for the advanced grading instances.
+     */
+    protected function resolve_active_instances(stdClass $grade): void {
+        $gradingmanager = get_grading_manager($this->context, 'mod_assign', 'submissions');
+        $controller = $gradingmanager->get_active_controller();
+        if (!isset($controller)) {
+            return;
+        }
+
+        $multimarking = $this->is_using_multiple_marking();
+        $controller->set_allow_multiple_raters($multimarking);
+        $instances = $controller->get_active_instances($grade->id);
+        if ($multimarking) {
+            // Active instances should only represent marks from allocated markers.
+            $markrecords = $this->get_mark_records($grade->id, $grade->userid);
+            $markerinstances = [];
+            foreach ($instances as $instance) {
+                $raterid = $instance->get_data('raterid');
+
+                // Archive all instances from raters who are not allocated markers. This can occur when
+                // assignments are graded before enabling multiple markers or markers are unallocated.
+                if (!isset($raterid) || !array_key_exists($raterid, $markrecords)) {
+                    $instance->archive();
+                    continue;
+                }
+
+                // Handle duplicates form the same marker. This shouldn't occur naturally.
+                if (isset($markerinstances[$raterid])) {
+                    if ($instance->get_data('timemodified') > $markerinstances[$raterid]->get_data('timemodified')) {
+                        $markerinstances[$raterid]->archive();
+                    } else {
+                        $instance->archive();
+                        continue;
+                    }
+                }
+
+                $markerinstances[$raterid] = $instance;
+            }
+
+            // All markers with marks should have an active advanced grading instance.
+            foreach ($markrecords as $markerid => $markrecord) {
+                if (isset($markerinstances[$markerid]) || !isset($markrecord->mark)) {
+                    continue;
+                }
+
+                // Try and find an archived instance. This can occur when markers are re-allocated.
+                $controller->get_latest_archived_instance($markerid, $grade->id)?->restore();
+            }
+        } else if (count($instances) > 1) {
+            // More than one instance implies multiple marking was previously enabled.
+            // Archive the old instances from multiple marking.
+            // TODO: Consider validating against grade. May run into issues with penalties etc.
+            // There are some instances where to want to archive all or none (i.e. no changes have been made).
+
+            $latest = null;
+            foreach ($instances as $instance) {
+                if (!isset($latest) || $instance->get_data('timemodified') > $latest->get_data('timemodified')) {
+                    $latest?->archive();
+                    $latest = $instance;
+                } else {
+                    $instance->archive();
+                }
+            }
+        }
     }
 
     /**
@@ -5058,7 +5131,9 @@ class assign {
         }
 
         $controller = $gradingmanager->get_active_controller();
-        $showquickgrading = empty($controller) && $this->can_grade();
+        $markerallocation = $this->get_instance()->markingworkflow && $this->get_instance()->markingallocation;
+        $showquickgrading = (empty($controller) && $this->can_grade()) ||
+            ($markerallocation && has_capability('mod/assign:manageallocations', $this->get_context()));
         $quickgrading = get_user_preferences('assign_quickgrading', false);
 
         $markingallocation = $this->get_instance()->markingworkflow &&
@@ -6034,6 +6109,16 @@ class assign {
             $gradingcontrollergrade = '';
             if ($hasgrade) {
                 if ($controller = $gradingmanager->get_active_controller()) {
+                    // Configure controller for multi marking.
+                    if ($this->is_using_multiple_marking()) {
+                        $controller->set_allow_multiple_raters(true);
+                        $markerallocations = $this->get_marker_allocations($user->id, false);
+                        $markerordering = array_flip(array_column($markerallocations, 'marker'));
+                        $controller->set_instances_sort(function($a, $b) use ($markerordering) {
+                            return $markerordering[$a->get_data('raterid')] ?? PHP_INT_MAX
+                                <=> $markerordering[$b->get_data('raterid')] ?? PHP_INT_MAX;
+                        });
+                    }
                     $menu = make_grades_menu($this->get_instance()->grade);
                     $controller->set_grade_range($menu, $this->get_instance()->grade > 0);
                     $gradingcontrollergrade = $controller->render_grade(
@@ -6271,6 +6356,17 @@ class assign {
         // Need gradingitem and gradingmanager.
         $gradingmanager = get_grading_manager($this->get_context(), 'mod_assign', 'submissions');
         $controller = $gradingmanager->get_active_controller();
+
+        // Configure controller for multi marking.
+        if ($controller && $this->is_using_multiple_marking()) {
+            $controller->set_allow_multiple_raters(true);
+            $markerallocations = $this->get_marker_allocations($userid, false);
+            $markerordering = array_flip(array_column($markerallocations, 'marker'));
+            $controller->set_instances_sort(function($a, $b) use ($markerordering) {
+                return $markerordering[$a->get_data('raterid')] ?? PHP_INT_MAX
+                    <=> $markerordering[$b->get_data('raterid')] ?? PHP_INT_MAX;
+            });
+        }
 
         $gradinginfo = grade_get_grades($this->get_course()->id,
                                         'mod',
@@ -7821,14 +7917,10 @@ class assign {
         require_capability('mod/assign:grade', $this->context);
         require_sesskey();
 
-        // Make sure advanced grading is disabled.
+        // Make sure values from advanced grading cannot be modified.
         $gradingmanager = get_grading_manager($this->get_context(), 'mod_assign', 'submissions');
         $controller = $gradingmanager->get_active_controller();
-        if (!empty($controller)) {
-            $message = get_string('errorquickgradingvsadvancedgrading', 'assign');
-            $this->set_error_message($message);
-            return $message;
-        }
+        $advgrading = isset($controller);
 
         $users = array();
         // First check all the last modified values.
@@ -7955,7 +8047,8 @@ class assign {
                 $current->grade = round(floatval($current->grade), $precision);
             }
 
-            $modified->gradechanged = $gradecolpresent && grade_floats_different($current->grade, $modified->grade);
+            $cangrade = $gradecolpresent && !$advgrading;
+            $modified->gradechanged = $cangrade && grade_floats_different($current->grade, $modified->grade);
 
             $modified->workflowstatechanged = $this->get_instance()->markingworkflow &&
                                               ($modified->workflowstate !== false) &&
@@ -7965,7 +8058,8 @@ class assign {
             $modified->markerallocationchanged = $markerallocationenabled && !empty($modified->modifiedallocations);
 
             $modified->markchanged = false;
-            if ($markerallocationenabled && $markcolpresent && $this->is_user_allocated_marker($USER->id, $modified->userid)) {
+            $canmark = $markerallocationenabled && $markcolpresent && !$advgrading;
+            if ($canmark && $this->is_user_allocated_marker($USER->id, $modified->userid)) {
                 $currentmark = $grade ? $this->get_mark($grade->id, $USER->id) : null;
                 $current->mark = ($currentmark && isset($currentmark->mark))
                     ? round(floatval($currentmark->mark), $precision)
@@ -8900,6 +8994,9 @@ class assign {
         $gradinginstance = null;
         if ($gradingmethod = $gradingmanager->get_active_method()) {
             $controller = $gradingmanager->get_controller($gradingmethod);
+            if ($this->is_using_multiple_marking()) {
+                $controller->set_allow_multiple_raters(true);
+            }
             if ($controller->is_form_available()) {
                 $itemid = null;
                 if ($grade) {
@@ -8943,6 +9040,7 @@ class assign {
         $gradingpanel = !empty($params['gradingpanel']);
         $bothids = ($userid && $useridlistid);
         $markerpage = (isset($params['marker']) && $params['marker']);
+        $markerallocation = $this->get_instance()->markingworkflow && $this->get_instance()->markingallocation;
 
         if (!$userid || $bothids) {
             $useridlist = $this->get_grading_userid_list(true, $useridlistid);
@@ -8968,11 +9066,8 @@ class assign {
         $gradingdisabled = $this->grading_disabled($userid);
         $gradinginstance = $this->get_grading_instance($userid, $grade, $gradingdisabled);
 
-        if ($markerpage) {
-            $mform->addElement('header', 'gradeheader', get_string('marknoun', 'assign'));
-        } else {
-            $mform->addElement('header', 'gradeheader', get_string('gradenoun'));
-        }
+        $pagename = $markerpage ? get_string('marknoun', 'assign') : get_string('gradenoun');
+        $mform->addElement('header', 'gradeheader', $pagename);
 
         $gradingrestricted = !$markerpage && $this->grading_restricted($grade->id, $userid);
         if ($gradingrestricted) {
@@ -8981,15 +9076,24 @@ class assign {
         }
 
         if ($gradinginstance) {
-            $gradingelement = $mform->addElement('grading',
-                                                 'advancedgrading',
-                                                 get_string('gradenoun') . ':',
-                                                 array('gradinginstance' => $gradinginstance));
-            if ($gradingdisabled) {
-                $gradingelement->freeze();
+            // When marker allocation is used, only show advanced grading on the marker page.
+            if (!$markerallocation || $markerpage) {
+                $gradingelement = $mform->addElement('grading',
+                                                     'advancedgrading',
+                                                     $pagename . ':',
+                                                     ['gradinginstance' => $gradinginstance]);
+                if ($gradingdisabled) {
+                    $gradingelement->freeze();
+                } else {
+                    $mform->addElement('hidden', 'advancedgradinginstanceid', $gradinginstance->get_id());
+                    $mform->setType('advancedgradinginstanceid', PARAM_INT);
+                }
             } else {
-                $mform->addElement('hidden', 'advancedgradinginstanceid', $gradinginstance->get_id());
-                $mform->setType('advancedgradinginstanceid', PARAM_INT);
+                $name = get_string('gradeoutof', 'assign', $this->get_instance()->grade);
+                $mform->addElement('text', 'grade', $name);
+                $mform->addHelpButton('grade', 'gradeoutofhelp', 'assign');
+                $mform->setType('grade', PARAM_RAW);
+                $mform->freeze('grade');
             }
         } else {
             // Use simple direct grading.
@@ -9133,6 +9237,9 @@ class assign {
             }
             if ($gradinglocked && $mform->elementExists('mark')) {
                 $mform->freeze('mark');
+            }
+            if ($gradinglocked && $mform->elementExists('advancedgrading')) {
+                $mform->freeze('advancedgrading');
             }
             if ($gradingstatus != ASSIGN_MARKING_WORKFLOW_STATE_RELEASED) {
                 if ($grade->grade && $grade->grade != -1) {
@@ -9988,7 +10095,7 @@ class assign {
         global $USER, $CFG, $DB;
         // If we are using marker allocation, are we allocated to this student? If not, we should not be able to update
         // their marks, even if they are in the same group as a student we are allocated to.
-        if (isset($formdata->mark) && $this->get_instance()->markingworkflow && $this->get_instance()->markingallocation) {
+        if ($this->is_marking() && $this->get_instance()->markingworkflow && $this->get_instance()->markingallocation) {
             $markerids = array_column($this->get_marker_allocations($userid, false), 'marker');
             if (!in_array($USER->id, $markerids)) {
                 return;
@@ -10008,7 +10115,7 @@ class assign {
 
         // This must run even when grading is disabled, otherwise a grade could never be released
         // (or sent back for review) once its current state makes it read-only.
-        if (isset($formdata->workflowstate) && !property_exists($formdata, 'mark')) {
+        if (isset($formdata->workflowstate) && !$this->is_marking()) {
             $flags = $this->get_user_flags($userid, true);
             $oldworkflowstate = $flags->workflowstate;
             $validstates = $this->get_marking_workflow_states_for_current_user();
@@ -10036,7 +10143,12 @@ class assign {
 
         if (!$valuelocked) {
             if ($gradinginstance) {
-                $grade->grade = $gradinginstance->submit_and_get_grade($formdata->advancedgrading, $grade->id);
+                $gradevalue = $gradinginstance->submit_and_get_grade($formdata->advancedgrading, $grade->id);
+                if ($this->is_marking()) {
+                    $formdata->mark = ($gradevalue >= 0) ? $gradevalue : null;
+                } else {
+                    $grade->grade = $gradevalue;
+                }
             } else {
                 // Handle the case when grade is set to No Grade.
                 if (isset($formdata->grade) && !$gradingrestricted) {
@@ -10083,7 +10195,7 @@ class assign {
         }
 
         // We do not want to update the timemodified if no grade was added.
-        if (empty($formdata->addattempt) && property_exists($formdata, 'mark')) {
+        if (empty($formdata->addattempt) && $this->is_marking() && property_exists($formdata, 'mark')) {
             $this->update_mark($grade, $formdata->mark, $formdata->workflowstate ?? null);
         } else if (
             !empty($formdata->addattempt) ||

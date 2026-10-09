@@ -12,3 +12,15 @@ notes:
         `gradingform_controller::get_current_instance()` now only returns the
         instance belonging to the given rater.
       type: changed
+  mod_assign:
+    - message: >-
+        Advanced grading can now be used with multiple markers. Each marker's
+        advanced grading result is saved as their mark. A new
+        `assign::is_using_advanced_grading()` method has been added.
+      type: improved
+    - message: >-
+        The `mod_assign_save_grade` and `mod_assign_save_grades` web services
+        now throw an `invalid_parameter_exception` when advanced grading data
+        is supplied for an assignment that uses multiple markers. Previously
+        this data was silently ignored.
+      type: changed

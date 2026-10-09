@@ -617,10 +617,20 @@ class gradingform_rubric_renderer extends plugin_renderer_base {
             $showdescription = $options['showdescriptionstudent'];
         }
         $output = '';
-        if ($showdescription) {
+        if ($showdescription && $idx === 0) {
             $output .= $this->box($instance->get_controller()->get_formatted_description(), 'gradingform_rubric-description');
         }
-        $output .= $this->display_rubric($criteria, $options, $mode, 'rubric'.$idx, $values);
+
+        // Display marker name if this is a multi rater instance.
+        $multipleraters = $instance->get_controller()->allow_multiple_raters();
+        if ($multipleraters && $raterid = $instance->get_data('raterid')) {
+            if ($marker = \core_user::get_user($raterid)) {
+                $viewfullnames = has_capability('moodle/site:viewfullnames', $instance->get_controller()->get_context());
+                $output .= $this->box($this->output->user_picture($marker) . fullname($marker, $viewfullnames));
+            }
+        }
+
+        $output .= $this->display_rubric($criteria, $options, $mode, 'rubric' . $idx, $values);
         return $output;
     }
 

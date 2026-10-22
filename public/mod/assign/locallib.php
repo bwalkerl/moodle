@@ -9156,7 +9156,10 @@ class assign {
             if ($gradinglocked && $mform->elementExists('mark')) {
                 $mform->freeze('mark');
             }
-            if ($gradinglocked && $markerpage) {
+            if (($gradinglocked || $gradingdisabled) && $markerpage) {
+                if (empty($currentstate)) {
+                    $select->setSelected('');
+                }
                 $mform->freeze('workflowstate');
             }
             if ($gradingstatus != ASSIGN_MARKING_WORKFLOW_STATE_RELEASED) {
@@ -9220,7 +9223,7 @@ class assign {
                 }
 
                 // Check the remaining allocate conditions.
-                if (!$this->can_allocate_marker($userid, $i, $checkworkflowstate, $allocatedmarker)) {
+                if ($gradingdisabled || !$this->can_allocate_marker($userid, $i, $checkworkflowstate, $allocatedmarker)) {
                     // Freeze and disabled attributes don't send the correct value, but disabledif does.
                     $mform->disabledIf("allocatedmarkergroup[$i]", 'id', 'eq', $this->get_course_module()->id);
                 }
@@ -9778,6 +9781,10 @@ class assign {
             }
 
             foreach ($useridlist as $userid) {
+                if ($this->grading_disabled($userid)) {
+                    continue;
+                }
+
                 $flags = $this->get_user_flags($userid, true);
                 $modifiedallocations = $this->get_modified_marker_allocation($userid, $allocatedmarkers, $enabledmarkers);
                 if (!$modifiedallocations) {

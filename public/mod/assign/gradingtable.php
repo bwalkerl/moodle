@@ -772,6 +772,7 @@ class assign_grading_table extends table_sql implements renderable {
 
         if (
             $this->quickgrading &&
+            !$this->assignment->grading_disabled($row->id, true, $this->gradinginfo) &&
             $this->assignment->can_allocate_marker($row->userid, $markerpos, $row->workflowstate ?? '', $allocatedmarker)
         ) {
             // Get the potential users who could be assigned as an allocated marker.

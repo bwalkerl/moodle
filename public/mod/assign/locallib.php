@@ -7717,7 +7717,8 @@ class assign {
 
             $workflowstatechanged = $this->get_instance()->markingworkflow &&
                                             ($modified->workflowstate !== false) &&
-                                            ($current->workflowstate != $modified->workflowstate);
+                                            ($current->workflowstate != $modified->workflowstate) &&
+                                            array_key_exists($modified->workflowstate, $this->get_marking_workflow_filters());
 
             // Have any of the marks changed?
             $markschanged = array_filter(
@@ -7785,7 +7786,8 @@ class assign {
             // These will be set to false if they are not present in the quickgrading
             // form (e.g. column hidden).
             $workflowstatemodified = ($modified->workflowstate !== false) &&
-                                        ($flags->workflowstate != $modified->workflowstate);
+                                        ($flags->workflowstate != $modified->workflowstate) &&
+                                        array_key_exists($modified->workflowstate, $this->get_marking_workflow_filters());
 
             if ($workflowstatemodified) {
                 $flags->workflowstate = $modified->workflowstate;

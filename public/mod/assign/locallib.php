@@ -7959,7 +7959,8 @@ class assign {
 
             $modified->workflowstatechanged = $this->get_instance()->markingworkflow &&
                                               ($modified->workflowstate !== false) &&
-                                              ($current->workflowstate != $modified->workflowstate);
+                                              ($current->workflowstate != $modified->workflowstate) &&
+                                              array_key_exists($modified->workflowstate, $this->get_marking_workflow_filters());
 
             $markerallocationenabled = $this->get_instance()->markingworkflow && $this->get_instance()->markingallocation;
             $modified->markerallocationchanged = $markerallocationenabled && !empty($modified->modifiedallocations);

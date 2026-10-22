@@ -4560,6 +4560,41 @@ Anchor link 2:<a title=\"bananas\" href=\"../logo-240x60.gif\">Link text</a>
     }
 
     /**
+     * Test the quicksave grades processor for marking workflows
+     */
+    public function test_process_save_quick_grades_workflow(): void {
+        $this->resetAfterTest();
+        $course = $this->getDataGenerator()->create_course();
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'teacher');
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+
+        $teacher->ignoresesskey = true;
+        $assign = $this->create_instance($course, [
+            'markingworkflow' => 1,
+        ]);
+
+        // Attempt to set workflow to released via quick grading without appropriate permissions.
+        $this->setUser($teacher);
+        $grade = $assign->get_user_grade($student->id, true);
+        $data = [
+            'grademodified_' . $student->id => $grade->timemodified,
+            'gradeattempt_' . $student->id => $grade->attemptnumber,
+            'quickgrade_' . $student->id . '_workflowstate' => ASSIGN_MARKING_WORKFLOW_STATE_RELEASED,
+        ];
+        $result = $assign->testable_process_save_quick_grades($data);
+        $this->assertStringContainsString(get_string('quickgradingchangessaved', 'assign'), $result);
+        $flags = $assign->get_user_flags($student->id, false);
+        $this->assertNotEquals(ASSIGN_MARKING_WORKFLOW_STATE_RELEASED, $flags->workflowstate ?? null);
+
+        // Set workflow to a state the user can set instead.
+        $data['quickgrade_' . $student->id . '_workflowstate'] = ASSIGN_MARKING_WORKFLOW_STATE_INMARKING;
+        $result = $assign->testable_process_save_quick_grades($data);
+        $this->assertStringContainsString(get_string('quickgradingchangessaved', 'assign'), $result);
+        $flags = $assign->get_user_flags($student->id, false);
+        $this->assertEquals(ASSIGN_MARKING_WORKFLOW_STATE_INMARKING, $flags->workflowstate);
+    }
+
+    /**
      * Test updating activity completion when submitting an assessment.
      */
     public function test_update_activity_completion_records_solitary_submission(): void {

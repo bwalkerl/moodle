@@ -30,6 +30,31 @@ Feature: Assignment multimarking settings
       | assign                | user      | onlinetext                   |
       | Test assignment name  | student1  | I'm the student1 submission  |
 
+  Scenario: Administrators manage one resolution method per plugin
+    Given I log in as "admin"
+    And I navigate to "Plugins > Activity modules > Assignment > Resolution plugins > Manage assignment resolution plugins" in site administration
+    Then "Maximum mark" "table_row" should exist in the "assignresolutionplugins" "table"
+    And "Average mark" "table_row" should exist in the "assignresolutionplugins" "table"
+    And "Manual" "table_row" should exist in the "assignresolutionplugins" "table"
+
+  Scenario: Administrators control resolution method visibility
+    Given I log in as "admin"
+    And I navigate to "Plugins > Activity modules > Assignment > Resolution plugins > Manage assignment resolution plugins" in site administration
+    Then "Maximum mark" "table_row" should exist in the "assignresolutionplugins" "table"
+    When I click on "Disable" "link" in the "Maximum mark" "table_row"
+    Then "Enable" "link" should exist in the "Maximum mark" "table_row"
+    When I click on "Enable" "link" in the "Maximum mark" "table_row"
+    Then "Disable" "link" should exist in the "Maximum mark" "table_row"
+
+  Scenario: Administrators control resolution methods order
+    Given I log in as "admin"
+    And I navigate to "Plugins > Activity modules > Assignment > Resolution plugins > Manage assignment resolution plugins" in site administration
+    And "Down" "link" should not exist in the "Maximum mark" "table_row"
+    When I click on "Up" "link" in the "Maximum mark" "table_row"
+    Then "Down" "link" should exist in the "Maximum mark" "table_row"
+    When I click on "Down" "link" in the "Maximum mark" "table_row"
+    Then "Down" "link" should not exist in the "Maximum mark" "table_row"
+
   @javascript
   Scenario: Changing settings that recalculate grades from marks give a warning
     # Initially add grades.
@@ -56,12 +81,12 @@ Feature: Assignment multimarking settings
     And I navigate to "Submissions" in current page administration
     And "Student 1" row "Grade" column of "generaltable" table should contain "40.00"
 
-    # Change multi marking calculation method.
+    # Change the resolution method.
     And I navigate to "Settings" in current page administration
     And I expand all fieldsets
-    And the "Calculate grade" "select" should be disabled
+    And the "Resolution method" "select" should be disabled
     And I set the field "Update agreed grades" to "Recalculate agreed grades"
-    And I set the field "Calculate grade" to "Average mark"
+    And I set the field "Resolution method" to "Average mark"
     And I press "Save and display"
     And I navigate to "Submissions" in current page administration
     And "Student 1" row "Grade" column of "generaltable" table should contain ""

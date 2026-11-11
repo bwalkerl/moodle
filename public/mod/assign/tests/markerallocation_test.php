@@ -17,6 +17,8 @@
 namespace mod_assign;
 
 use assign;
+use assignresolution_average\method as average;
+use assignresolution_maximum\method as maximum;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -77,7 +79,7 @@ final class markerallocation_test extends \advanced_testcase {
             'markingallocation'                 => 1,
             'markercount'                       => ($args['markercount']) ?? ASSIGN_MULTIMARKING_DEFAULT_MARKERS,
             'optionalmarkercount'               => ($args['optionalmarkercount']) ?? ASSIGN_MULTIMARKING_DEFAULT_OPTIONAL_MARKERS,
-            'multimarkmethod'                   => ($args['multimarkmethod']) ?? ASSIGN_MULTIMARKING_METHOD_MANUAL,
+            'multimarkmethod'                   => ($args['multimarkmethod']) ?? '',
             'multimarkrounding'                 => ($args['multimarkrounding']) ?? null,
         ];
 
@@ -819,7 +821,6 @@ final class markerallocation_test extends \advanced_testcase {
         $this->assertFalse($assignment->can_allocate_marker($this->users[2]->id, 1, $workflowstate, $currentmarker));
     }
 
-
     /**
      * Verify direct grading is restricted when not all allocated markers have marked.
      */
@@ -900,208 +901,6 @@ final class markerallocation_test extends \advanced_testcase {
     }
 
     /**
-     * Test manual calculation of final grade.
-     */
-    public function test_calculated_marker_grade_manual(): void {
-        $this->setup_data();
-        $assignment = $this->create_assignment();
-
-        // Allocate both teachers to the student assignment.
-        $assignment->update_marker_allocations($this->users[2]->id, [
-            1 => [$this->users[0]->id],
-            2 => [$this->users[1]->id],
-        ]);
-
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
-
-        // Assign a mark as teacher1.
-        $gradeobject->grader = $this->users[0]->id;
-        $assignment->update_mark($gradeobject, 99, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
-
-        // Assign a mark as teacher2.
-        $gradeobject->grader = $this->users[1]->id;
-        $assignment->update_mark($gradeobject, 11, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
-
-        // With manual calculation, there should be no grade set yet.
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
-        $this->assertEquals(-1, $gradeobject->grade);
-
-        // The agreed grade should still meet the conditions to be determined.
-        $this->assertTrue($assignment->can_determine_agreed_grade($gradeobject->id, $gradeobject->userid));
-
-        // Set a manual grade.
-        $gradeobject->grade = 55;
-        $assignment->update_grade($gradeobject);
-
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
-        $this->assertEquals(55, $gradeobject->grade);
-
-        // Confirm that updating a mark does not change a manual grade.
-        $assignment->update_mark($gradeobject, 22, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
-        $this->assertEquals(55, $gradeobject->grade);
-
-        // Confirm that removing a mark does not change the manual grade.
-        $assignment->update_mark($gradeobject, null, ASSIGN_MARKING_WORKFLOW_STATE_NOTMARKED);
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
-        $this->assertEquals(55, $gradeobject->grade);
-    }
-
-    /**
-     * Test "maximum" calculation of final grade when using scale grading.
-     */
-    public function test_calculated_marker_grade_maximum(): void {
-        $this->setup_data();
-        $assignment = $this->create_assignment([
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_MAX,
-        ]);
-
-        // Allocate both teachers to the student assignment.
-        $assignment->update_marker_allocations($this->users[2]->id, [
-            1 => [$this->users[0]->id],
-            2 => [$this->users[1]->id],
-        ]);
-
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
-
-        // Assign a mark as teacher1.
-        $gradeobject->grader = $this->users[0]->id;
-        $assignment->update_mark($gradeobject, 11, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
-
-        // Assign a mark as teacher2.
-        $gradeobject->grader = $this->users[1]->id;
-        $assignment->update_mark($gradeobject, 99, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
-
-        // With max calculation, the grade should be the highest one.
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
-        $this->assertEquals(99, $gradeobject->grade);
-    }
-
-    /**
-     * Test "average" calculation of final grade when using rounding of "none".
-     */
-    public function test_calculated_marker_grade_average_round_none(): void {
-        $this->setup_data();
-        $assignment = $this->create_assignment([
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
-        ]);
-
-        // Allocate both teachers to the student assignment.
-        $assignment->update_marker_allocations($this->users[2]->id, [
-            1 => [$this->users[0]->id],
-            2 => [$this->users[1]->id],
-        ]);
-
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
-
-        // Assign a mark as teacher1.
-        $gradeobject->grader = $this->users[0]->id;
-        $assignment->update_mark($gradeobject, 90, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
-
-        // Assign a mark as teacher2.
-        $gradeobject->grader = $this->users[1]->id;
-        $assignment->update_mark($gradeobject, 25, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
-
-        // With avg calculation and no rounding, the grade should be 57.5.
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
-        $this->assertEquals(57.5, $gradeobject->grade);
-    }
-
-    /**
-     * Test "average" calculation of final grade when using rounding of "down".
-     */
-    public function test_calculated_marker_grade_average_rounding_down(): void {
-        $this->setup_data();
-        $assignment = $this->create_assignment([
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_DOWN,
-        ]);
-
-        // Allocate both teachers to the student assignment.
-        $assignment->update_marker_allocations($this->users[2]->id, [
-            1 => [$this->users[0]->id],
-            2 => [$this->users[1]->id],
-        ]);
-
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
-
-        // Assign a mark as teacher1.
-        $gradeobject->grader = $this->users[0]->id;
-        $assignment->update_mark($gradeobject, 90, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
-
-        // Assign a mark as teacher2.
-        $gradeobject->grader = $this->users[1]->id;
-        $assignment->update_mark($gradeobject, 25, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
-
-        // With avg calculation and down rounding, the grade should be 57.
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
-        $this->assertEquals(57, $gradeobject->grade);
-    }
-
-    /**
-     * Test that the grade calculation from marks using method "average" with up rounding, sets the correct grade.
-     */
-    public function test_calculated_marker_grade_average_round_up(): void {
-        $this->setup_data();
-        $assignment = $this->create_assignment([
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_UP,
-        ]);
-
-        // Allocate both teachers to the student assignment.
-        $assignment->update_marker_allocations($this->users[2]->id, [
-            1 => [$this->users[0]->id],
-            2 => [$this->users[1]->id],
-        ]);
-
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
-
-        // Assign a mark as teacher1.
-        $gradeobject->grader = $this->users[0]->id;
-        $assignment->update_mark($gradeobject, 90, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
-
-        // Assign a mark as teacher2.
-        $gradeobject->grader = $this->users[1]->id;
-        $assignment->update_mark($gradeobject, 25, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
-
-        // With avg calculation and up rounding, the grade should be 58.
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
-        $this->assertEquals(58, $gradeobject->grade);
-    }
-
-    /**
-     * Test that the grade calculation from marks using method "average" with natural rounding, sets the correct grade.
-     */
-    public function test_calculated_marker_grade_average_round_natural(): void {
-        $this->setup_data();
-        $assignment = $this->create_assignment([
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NATURAL,
-        ]);
-
-        // Allocate both teachers to the student assignment.
-        $assignment->update_marker_allocations($this->users[2]->id, [
-            1 => [$this->users[0]->id],
-            2 => [$this->users[1]->id],
-        ]);
-
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
-
-        // Assign a mark as teacher1.
-        $gradeobject->grader = $this->users[0]->id;
-        $assignment->update_mark($gradeobject, 90, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
-
-        // Assign a mark as teacher2.
-        $gradeobject->grader = $this->users[1]->id;
-        $assignment->update_mark($gradeobject, 25, ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW);
-
-        // With avg calculation and natural rounding, the grade should be 58.
-        $gradeobject = $assignment->get_user_grade($this->users[2]->id, false);
-        $this->assertEquals(58, $gradeobject->grade);
-    }
-
-    /**
      * Test that the workflow state changes on the overall grade based on marker states.
      */
     public function test_calculated_marker_workflow(): void {
@@ -1165,8 +964,7 @@ final class markerallocation_test extends \advanced_testcase {
     public function test_unallocated_marker_not_included_in_mark_calculations(): void {
         $this->setup_data();
         $assignment = $this->create_assignment([
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NATURAL,
+            'multimarkmethod' => average::get_basename(),
         ]);
 
         // Allocate both teachers to the student assignment.
@@ -1202,12 +1000,13 @@ final class markerallocation_test extends \advanced_testcase {
      * This should only be triggered when markers are allocated or marks are assigned.
      */
     public function test_clear_stale_agreed_grade_calculations(): void {
+        global $DB;
+
         $this->setup_data();
         $assignment = $this->create_assignment([
             'markercount' => 2,
             'optionalmarkercount' => 1,
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+            'multimarkmethod' => average::get_basename(),
         ]);
 
         // Start with a manual grade that isn't calculated.
@@ -1302,8 +1101,7 @@ final class markerallocation_test extends \advanced_testcase {
         $assignment = $this->create_assignment([
             'markercount' => 1,
             'optionalmarkercount' => 1,
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+            'multimarkmethod' => average::get_basename(),
         ]);
 
         // Slot 2 is optional and enabled.
@@ -1341,8 +1139,7 @@ final class markerallocation_test extends \advanced_testcase {
         $assignment = $this->create_assignment([
             'markercount' => 1,
             'optionalmarkercount' => 1,
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+            'multimarkmethod' => average::get_basename(),
         ]);
 
         // Teachers are allocated to both marking positions.
@@ -1396,8 +1193,7 @@ final class markerallocation_test extends \advanced_testcase {
         $assignment = $this->create_assignment([
             'markercount' => 2,
             'optionalmarkercount' => 0,
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+            'multimarkmethod' => average::get_basename(),
         ]);
 
         // Can increase when markers are not allocated.
@@ -1444,8 +1240,7 @@ final class markerallocation_test extends \advanced_testcase {
         $assignment = $this->create_assignment([
             'markercount' => 3,
             'optionalmarkercount' => 0,
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+            'multimarkmethod' => average::get_basename(),
         ]);
 
         $assignment->update_marker_allocations($this->users[2]->id, [
@@ -1491,8 +1286,7 @@ final class markerallocation_test extends \advanced_testcase {
         $assignment = $this->create_assignment([
             'markercount' => 2,
             'optionalmarkercount' => 0,
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+            'multimarkmethod' => average::get_basename(),
         ]);
 
         // Can increase when markers are not allocated.
@@ -1544,8 +1338,7 @@ final class markerallocation_test extends \advanced_testcase {
         $assignment = $this->create_assignment([
             'markercount' => 1,
             'optionalmarkercount' => 2,
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+            'multimarkmethod' => average::get_basename(),
         ]);
 
         // Can't decrease when there's a user with all optional markers enabled.
@@ -1598,8 +1391,7 @@ final class markerallocation_test extends \advanced_testcase {
         $this->update_assignment_instance($assignment, [
             'markercount' => 2,
             'optionalmarkercount' => 0,
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+            'multimarkmethod' => average::get_basename(),
         ]);
 
         // Existing grade should be kept until allocated or marked.
@@ -1616,14 +1408,13 @@ final class markerallocation_test extends \advanced_testcase {
      * @param float $expectedgrade
      */
     #[\PHPUnit\Framework\Attributes\DataProvider('changing_grade_calculation_provider')]
-    public function test_changing_grade_calculation(string $method, ?int $rounding, string $action, float $expectedgrade): void {
+    public function test_changing_grade_calculation(string $method, string $action, float $expectedgrade): void {
         $this->setup_data();
 
         $assignment = $this->create_assignment([
             'markercount' => 2,
             'optionalmarkercount' => 0,
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+            'multimarkmethod' => average::get_basename(),
         ]);
 
         $assignment->update_marker_allocations($this->users[2]->id, [
@@ -1644,14 +1435,9 @@ final class markerallocation_test extends \advanced_testcase {
         $gradeobject = $assignment->get_user_grade($this->users[2]->id, true);
         $this->assertEquals(52.5, $gradeobject->grade);
 
-        // Manually update the grade to confirm no changes to the existing strategy.
-        $gradeobject->grade = 55;
-        $assignment->update_grade($gradeobject);
-
         // Update the assignment settings.
         $this->update_assignment_instance($assignment, [
             'multimarkmethod' => $method,
-            'multimarkrounding' => $rounding,
             'multimarkupdate' => $action,
         ]);
 
@@ -1666,59 +1452,25 @@ final class markerallocation_test extends \advanced_testcase {
      */
     public static function changing_grade_calculation_provider(): array {
         return [
-            'manual' => [
-                ASSIGN_MULTIMARKING_METHOD_MANUAL,
-                null,
-                ASSIGN_MULTIMARKING_ACTION_RECALCULATE,
-                -1,
-            ],
-            'maximum' => [
-                ASSIGN_MULTIMARKING_METHOD_MAX,
-                null,
+            'average' => [
+                maximum::get_basename(),
                 ASSIGN_MULTIMARKING_ACTION_RECALCULATE,
                 90,
             ],
-            'average' => [
-                ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-                ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
-                ASSIGN_MULTIMARKING_ACTION_RECALCULATE,
-                52.5,
-            ],
-            'average_round_natural' => [
-                ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-                ASSIGN_MULTIMARKING_AVERAGE_ROUND_NATURAL,
-                ASSIGN_MULTIMARKING_ACTION_RECALCULATE,
-                53,
-            ],
-            'average_round_up' => [
-                ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-                ASSIGN_MULTIMARKING_AVERAGE_ROUND_UP,
-                ASSIGN_MULTIMARKING_ACTION_RECALCULATE,
-                53,
-            ],
-            'average_round_down' => [
-                ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-                ASSIGN_MULTIMARKING_AVERAGE_ROUND_DOWN,
-                ASSIGN_MULTIMARKING_ACTION_RECALCULATE,
-                52,
-            ],
             'clear' => [
-                ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-                null,
+                average::get_basename(),
                 ASSIGN_MULTIMARKING_ACTION_CLEAR,
                 -1,
             ],
             'noaction' => [
-                ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-                null,
+                average::get_basename(),
                 ASSIGN_MULTIMARKING_ACTION_NONE,
-                55,
+                52.5,
             ],
             'unselected' => [
-                ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-                null,
+                average::get_basename(),
                 '',
-                55,
+                52.5,
             ],
         ];
     }

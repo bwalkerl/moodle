@@ -435,17 +435,18 @@ if ($ADMIN->fulltree) {
     // Default setting for multi-marking method (e.g. manual, max, etc...).
     $name = new lang_string('multimarkmethod', 'mod_assign');
     $description = new lang_string('multimarkmethod_help', 'mod_assign');
-    $options = [
-        ASSIGN_MULTIMARKING_METHOD_MANUAL => get_string('markgrade' . ASSIGN_MULTIMARKING_METHOD_MANUAL, 'assign'),
-        ASSIGN_MULTIMARKING_METHOD_MAX => get_string('markgrade' . ASSIGN_MULTIMARKING_METHOD_MAX, 'assign'),
-        ASSIGN_MULTIMARKING_METHOD_AVERAGE => get_string('markgrade' . ASSIGN_MULTIMARKING_METHOD_AVERAGE, 'assign'),
-    ];
+    $allowedmethods = [];
+    foreach (\mod_assign\plugininfo\assignresolution::get_resolution_methods(true) as $method) {
+        if ($method::supports_assignment_selection()) {
+            $allowedmethods[$method::get_basename()] = $method::get_name();
+        }
+    }
     $setting = new admin_setting_configselect(
         'assign/multimarkmethod',
         $name,
         $description,
-        ASSIGN_MULTIMARKING_METHOD_MANUAL,
-        $options,
+        \assignresolution_manual\method::get_basename(),
+        $allowedmethods,
     );
     $setting->set_advanced_flag_options(admin_setting_flag::ENABLED, false);
     $setting->set_locked_flag_options(admin_setting_flag::ENABLED, false);
@@ -454,17 +455,15 @@ if ($ADMIN->fulltree) {
     // Default setting for multi-marking rounding (e.g. up, down, none).
     $name = new lang_string('multimarkrounding', 'mod_assign');
     $description = new lang_string('multimarkrounding_help', 'mod_assign');
-    $options = [
-        ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE  => get_string('multimarkrounding:none', 'assign'),
-        ASSIGN_MULTIMARKING_AVERAGE_ROUND_NATURAL  => get_string('multimarkrounding:natural', 'assign'),
-        ASSIGN_MULTIMARKING_AVERAGE_ROUND_DOWN => get_string('multimarkrounding:down', 'assign'),
-        ASSIGN_MULTIMARKING_AVERAGE_ROUND_UP  => get_string('multimarkrounding:up', 'assign'),
-    ];
+    $options = [];
+    foreach (\mod_assign\resolution\rounding::cases() as $mode) {
+        $options[$mode->value] = $mode->get_name();
+    }
     $setting = new admin_setting_configselect(
         'assign/multimarkrounding',
         $name,
         $description,
-        ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+        \mod_assign\resolution\rounding::NONE->value,
         $options,
     );
     $setting->set_advanced_flag_options(admin_setting_flag::ENABLED, false);
@@ -492,7 +491,11 @@ $ADMIN->add('assignsubmissionplugins', new assign_admin_page_manage_assign_plugi
 $ADMIN->add('modassignfolder', new admin_category('assignfeedbackplugins',
     new lang_string('feedbackplugins', 'assign'), !$module->is_enabled()));
 $ADMIN->add('assignfeedbackplugins', new assign_admin_page_manage_assign_plugins('assignfeedback'));
-
+$ADMIN->add(
+    'modassignfolder',
+    new admin_category('assignresolutionplugins', new lang_string('resolutionplugins', 'assign'), !$module->is_enabled())
+);
+$ADMIN->add('assignresolutionplugins', new assign_admin_page_manage_assign_plugins('assignresolution'));
 foreach (core_plugin_manager::instance()->get_plugins_of_type('assignsubmission') as $plugin) {
     /** @var \mod_assign\plugininfo\assignsubmission $plugin */
     $plugin->load_settings($ADMIN, 'assignsubmissionplugins', $hassiteconfig);
@@ -501,4 +504,9 @@ foreach (core_plugin_manager::instance()->get_plugins_of_type('assignsubmission'
 foreach (core_plugin_manager::instance()->get_plugins_of_type('assignfeedback') as $plugin) {
     /** @var \mod_assign\plugininfo\assignfeedback $plugin */
     $plugin->load_settings($ADMIN, 'assignfeedbackplugins', $hassiteconfig);
+}
+
+foreach (core_plugin_manager::instance()->get_plugins_of_type('assignresolution') as $plugin) {
+    /** @var \mod_assign\plugininfo\assignresolution $plugin */
+    $plugin->load_settings($ADMIN, 'assignresolutionplugins', $hassiteconfig);
 }

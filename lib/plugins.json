@@ -22,6 +22,12 @@
             "file",
             "offline"
         ],
+        "assignresolution": [
+            "average",
+            "manual",
+            "mark",
+            "maximum"
+        ],
         "assignsubmission": [
             "comments",
             "file",

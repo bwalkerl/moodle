@@ -24,8 +24,10 @@
 
 namespace mod_assign\event;
 
+use assignresolution_average\method as average;
 use context_module;
 use mod_assign\override_manager;
+use mod_assign\resolution\rounding;
 use mod_assign_test_generator;
 use stdClass;
 
@@ -870,8 +872,8 @@ final class events_test extends \advanced_testcase {
             'markingworkflow' => 1,
             'markingallocation' => 1,
             'markercount' => 2,
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+            'multimarkmethod' => average::get_basename(),
+            'multimarkrounding' => rounding::NONE->value,
         ]);
 
         $sink = $this->redirectEvents();
@@ -972,8 +974,8 @@ final class events_test extends \advanced_testcase {
             'markingworkflow' => 1,
             'markingallocation' => 1,
             'markercount' => 2,
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            'multimarkrounding' => ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
+            'multimarkmethod' => average::get_basename(),
+            'multimarkrounding' => rounding::NONE->value,
         ]);
 
         $assign->update_marker_allocations($student->id, [
@@ -1011,7 +1013,7 @@ final class events_test extends \advanced_testcase {
                 $this->assertEquals($assign->get_context(), $event->get_context());
                 $this->assertEquals($grade->id, $event->objectid);
                 $this->assertEquals($student->id, $event->relateduserid);
-                $this->assertEquals(ASSIGN_MULTIMARKING_METHOD_AVERAGE, $event->other['method']);
+                $this->assertEquals(average::get_basename(), $event->other['method']);
                 $this->assertEquals([$teacher1->id, $teacher2->id], $event->other['markerids']);
             }
         }

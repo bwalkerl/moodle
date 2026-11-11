@@ -84,15 +84,55 @@ define('ASSIGN_EVENT_TYPE_OPEN', 'open');
 define('ASSIGN_EVENT_TYPE_CLOSE', 'close');
 define('ASSIGN_EVENT_TYPE_EXTENSION', 'extension');
 
-define('ASSIGN_MULTIMARKING_METHOD_MANUAL', 'manual');
-define('ASSIGN_MULTIMARKING_METHOD_MAX', 'maximum');
-define('ASSIGN_MULTIMARKING_METHOD_AVERAGE', 'average');
+/**
+ * @deprecated since Moodle 6.0 MDL-90522
+ * @todo MDL-89401 Final deprecation in Moodle 7.0.
+ * Use \assignresolution_manual\method::get_basename().
+ */
+define('ASSIGN_MULTIMARKING_METHOD_MANUAL', \assignresolution_manual\method::get_basename());
+/**
+ * @deprecated since Moodle 6.0 MDL-90522
+ * @todo MDL-89401 Final deprecation in Moodle 7.0.
+ * Use \assignresolution_maximum\method::get_basename().
+ */
+define('ASSIGN_MULTIMARKING_METHOD_MAX', \assignresolution_maximum\method::get_basename());
+/**
+ * @deprecated since Moodle 6.0 MDL-90522
+ * @todo MDL-89401 Final deprecation in Moodle 7.0.
+ * Use \assignresolution_average\method::get_basename().
+ */
+define('ASSIGN_MULTIMARKING_METHOD_AVERAGE', \assignresolution_average\method::get_basename());
+/**
+ * @deprecated since Moodle 6.0 MDL-90522
+ * @todo MDL-89401 Final deprecation in Moodle 7.0.
+ * The first-mark calculation method is no longer available.
+ */
 define('ASSIGN_MULTIMARKING_METHOD_FIRST', 'first');
 
-define('ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE', 0);
-define('ASSIGN_MULTIMARKING_AVERAGE_ROUND_NATURAL', 1);
-define('ASSIGN_MULTIMARKING_AVERAGE_ROUND_DOWN', 2);
-define('ASSIGN_MULTIMARKING_AVERAGE_ROUND_UP', 3);
+/**
+ * @deprecated since Moodle 6.0 MDL-90522
+ * @todo MDL-89401 Final deprecation in Moodle 7.0.
+ * Use \mod_assign\resolution\rounding::NONE->value.
+ */
+define('ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE', \mod_assign\resolution\rounding::NONE->value);
+/**
+ * @deprecated since Moodle 6.0 MDL-90522
+ * @todo MDL-89401 Final deprecation in Moodle 7.0.
+ * Use \mod_assign\resolution\rounding::NATURAL->value.
+ */
+define('ASSIGN_MULTIMARKING_AVERAGE_ROUND_NATURAL', \mod_assign\resolution\rounding::NATURAL->value);
+/**
+ * @deprecated since Moodle 6.0 MDL-90522
+ * @todo MDL-89401 Final deprecation in Moodle 7.0.
+ * Use \mod_assign\resolution\rounding::DOWN->value.
+ */
+define('ASSIGN_MULTIMARKING_AVERAGE_ROUND_DOWN', \mod_assign\resolution\rounding::DOWN->value);
+/**
+ * @deprecated since Moodle 6.0 MDL-90522
+ * @todo MDL-89401 Final deprecation in Moodle 7.0.
+ * Use \mod_assign\resolution\rounding::UP->value.
+ */
+define('ASSIGN_MULTIMARKING_AVERAGE_ROUND_UP', \mod_assign\resolution\rounding::UP->value);
 
 define('ASSIGN_MULTIMARKING_ACTION_NONE', 'none');
 define('ASSIGN_MULTIMARKING_ACTION_CALCULATE_MISSING', 'missing');
@@ -3453,47 +3493,58 @@ class assign {
             return false;
         }
 
+        // Guard against recursion if a resolution method updates allocated markers.
+        foreach (array_slice(debug_backtrace(DEBUG_BACKTRACE_PROVIDE_OBJECT), 1) as $frame) {
+            if (
+                ($frame['function'] ?? '') === __FUNCTION__
+                && ($frame['object'] ?? null) === $this
+                && ($frame['args'][0]->userid ?? null) == $grade->userid
+            ) {
+                return false;
+            }
+        }
+
         // Marker allocation per attempt isn't stored, so we can only calculate the latest attempt.
         $latest = $this->get_user_grade($grade->userid, false);
         if ($grade->attemptnumber != $latest->attemptnumber) {
             return false;
         }
 
-        // Check if the conditions to determine an agreed grade are met.
-        if (!$this->can_determine_agreed_grade($grade->id, $grade->userid)) {
-            // Clear stale agreed grade calculations.
-            if ($clearstale && isset($grade->grade) && $grade->grade != -1) {
-                return $this->clear_agreed_grade($grade);
-            }
-            return false;
-        }
+        return $this->get_resolution_method($latest)->resolve_grade($clearstale);
+    }
 
-        // Calculate the agreed grade based on the marks.
-        // Placeholder until multi marking methods have their own class.
-        $marks = $this->get_marks($grade->id, $grade->userid);
-        switch ($this->get_instance()->multimarkmethod) {
-            case 'maximum':
-                return $this->calculate_and_update_grade_from_maximum_mark($grade, $marks);
-            case 'average':
-                return $this->calculate_and_update_grade_from_average_mark($grade, $marks);
-        }
-
-        // The manual method requires a manual intervention to set the grade, so nothing to do here.
-
-        return false;
+    /**
+     * Get the resolution method configured for this assignment.
+     *
+     * @param stdClass $grade Grade record for this attempt.
+     * @return \mod_assign\resolution\method
+     */
+    public function get_resolution_method(stdClass $grade): \mod_assign\resolution\method {
+        $classname = \mod_assign\plugininfo\assignresolution::get_resolution_class(
+            $this->get_instance()->multimarkmethod ?? '',
+        );
+        return new $classname($this, $grade);
     }
 
     /**
      * Whether the conditions for determining an agreed grade from current marks are met.
      * Placeholder function until multi marking methods have their own class.
      *
+     * @deprecated since Moodle 6.0 MDL-90522 - Use assign::get_resolution_method($grade)->can_resolve_grade() instead.
+     * @todo MDL-89401 Final deprecation in Moodle 7.0.
      * @param int $gradeid
      * @param int $studentid
      * @return bool Whether a grade can be determined from the provided marks.
      */
+    #[\core\attribute\deprecated(
+        replacement: 'assign::get_resolution_method($grade)->can_resolve_grade()',
+        since: '6.0',
+        mdl: 'MDL-90522',
+    )]
     public function can_determine_agreed_grade(int $gradeid, int $studentid): bool {
-        // We can only determine grades when all expected markers have finished marking.
-        return $this->all_markers_marked($gradeid, $studentid);
+        deprecation::emit_deprecation([self::class, __FUNCTION__]);
+        $grade = $this->get_grade($gradeid);
+        return $this->get_resolution_method($grade)->can_resolve_grade();
     }
 
     /**
@@ -3504,23 +3555,32 @@ class assign {
      * @return bool
      */
     protected function should_clear_stale_agreed_grade(stdClass $grade): bool {
-        // Automatic clearing should only be applied to calculation methods.
-        if ($this->get_instance()->multimarkmethod === ASSIGN_MULTIMARKING_METHOD_MANUAL) {
+        // Automatic clearing should only be applied to automatic resolution methods.
+        $resolution = $this->get_resolution_method($grade);
+        if (!$resolution->is_automatic()) {
             return false;
         }
 
         // We don't want to clear manual or legacy agreed grades that don't meet current requirements.
-        return $this->can_determine_agreed_grade($grade->id, $grade->userid);
+        return $resolution->can_resolve_grade();
     }
 
     /**
      * Returns whether all markers have marked.
      *
+     * @deprecated since Moodle 6.0 MDL-90522 - Use assign::get_resolution_method($grade)->can_resolve_grade() instead.
+     * @todo MDL-89401 Final deprecation in Moodle 7.0.
      * @param int $gradeid
      * @param int $studentid
-     * @return bool Whether all markers have marked.
+     * @return bool Whether all markers have marked
      */
+    #[\core\attribute\deprecated(
+        replacement: 'assign::get_resolution_method($grade)->can_resolve_grade()',
+        since: '6.0',
+        mdl: 'MDL-90522',
+    )]
     public function all_markers_marked(int $gradeid, int $studentid): bool {
+        deprecation::emit_deprecation([self::class, __FUNCTION__]);
         $markrecords = $this->get_mark_records($gradeid, $studentid);
         $markrecords = array_filter($markrecords, fn($mark) => $this->mark_is_marked($mark));
         return count($markrecords) >= $this->expected_marker_count($studentid);
@@ -3535,7 +3595,7 @@ class assign {
      * @param string $method Method used to calculate the agreed grade. Defaults to multimarkmethod.
      * @return bool true if agreed grade was updated.
      */
-    protected function update_agreed_grade(stdClass $grade, ?float $calculated, array $markers, string $method = ''): bool {
+    public function update_agreed_grade(stdClass $grade, ?float $calculated, array $markers, string $method = ''): bool {
         if (empty($method)) {
             $method = $this->get_instance()->multimarkmethod;
         }
@@ -3555,7 +3615,7 @@ class assign {
      * @param stdClass $grade Grade object used by the assignment.
      * @return bool
      */
-    protected function clear_agreed_grade(stdClass $grade): bool {
+    public function clear_agreed_grade(stdClass $grade): bool {
         $grade->grade = -1;
         $grade->grader = -1;
         return $this->update_grade($grade);
@@ -3564,11 +3624,19 @@ class assign {
     /**
      * Calculate and update the assignment grade to be the average of the marks received, taking into account rounding.
      *
+     * @deprecated since Moodle 6.0 MDL-90522 Use \assignresolution_average\method instead.
+     * @todo MDL-89401 Final deprecation in Moodle 7.0.
      * @param stdClass $grade Grade object used by the assignment.
      * @param array $marks Array of marker marks to average, keyed by marker ID.
      * @return bool
      */
+    #[\core\attribute\deprecated(
+        replacement: '\\assignresolution_average\\method',
+        since: '6.0',
+        mdl: 'MDL-90522',
+    )]
     protected function calculate_and_update_grade_from_average_mark(stdClass $grade, array $marks): bool {
+        deprecation::emit_deprecation([self::class, __FUNCTION__]);
         $value = array_sum($marks) / count($marks);
         // Do we need to round?
         if (is_float($value)) {
@@ -3587,11 +3655,19 @@ class assign {
     /**
      * Calculate and update the assignment grade to be the maximum mark received.
      *
+     * @deprecated since Moodle 6.0 MDL-90522 Use \assignresolution_maximum\method instead.
+     * @todo MDL-89401 Final deprecation in Moodle 7.0.
      * @param stdClass $grade Grade object used by the assignment.
      * @param array $marks Array of marker marks, keyed by marker ID.
      * @return bool
      */
+    #[\core\attribute\deprecated(
+        replacement: '\\assignresolution_maximum\\method',
+        since: '6.0',
+        mdl: 'MDL-90522',
+    )]
     protected function calculate_and_update_grade_from_maximum_mark(stdClass $grade, array $marks): bool {
+        deprecation::emit_deprecation([self::class, __FUNCTION__]);
         $value = grade_floatval(max($marks));
         return $this->update_agreed_grade($grade, $value, array_keys($marks));
     }
@@ -8899,7 +8975,12 @@ class assign {
             return false;
         }
 
-        return empty($gradeid) || !$this->all_markers_marked($gradeid, $studentid);
+        if (empty($gradeid)) {
+            return true;
+        }
+
+        $grade = $this->get_grade($gradeid);
+        return !$this->get_resolution_method($grade)->can_resolve_grade();
     }
 
     /**
@@ -11474,7 +11555,7 @@ class assign {
      * @param stdClass|null $mark The assign mark record.
      * @return bool
      */
-    protected function mark_is_marked(?stdClass $mark): bool {
+    public function mark_is_marked(?stdClass $mark): bool {
         // The marking workflow must be set as completed and contain a valid mark value.
         $completed = isset($mark->workflowstate) && $mark->workflowstate == ASSIGN_MARKING_WORKFLOW_STATE_READYFORREVIEW;
         return $completed && isset($mark->mark) && $mark->mark >= 0;
@@ -11653,11 +11734,7 @@ class assign {
     public function recalculate_agreed_grades(string $action): void {
         switch ($action) {
             case ASSIGN_MULTIMARKING_ACTION_RECALCULATE:
-                if ($this->get_instance()->multimarkmethod === ASSIGN_MULTIMARKING_METHOD_MANUAL) {
-                    $this->clear_all_agreed_grades();
-                } else {
-                    $this->update_all_agreed_grades();
-                }
+                $this->update_all_agreed_grades();
                 break;
             case ASSIGN_MULTIMARKING_ACTION_CLEAR:
                 $this->clear_all_agreed_grades();
@@ -11715,7 +11792,7 @@ class assign {
             }
 
             // Calculate missing agreed grades that can now be determined.
-            if ($this->can_determine_agreed_grade($grade->id, $grade->userid)) {
+            if ($this->get_resolution_method($grade)->can_resolve_grade()) {
                 $this->calculate_and_save_agreed_grade($grade, false);
             }
         }

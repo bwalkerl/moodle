@@ -94,6 +94,7 @@ class backup_assign_activity_structure_step extends backup_activity_structure_st
                                                   'markercount',
                                                   'optionalmarkercount',
                                                   'multimarkmethod',
+                                                  'multimarkrounding',
                                                   'markinganonymous',
                                                   'preventsubmissionnotingroup',
                                                   'activity',
@@ -215,6 +216,7 @@ class backup_assign_activity_structure_step extends backup_activity_structure_st
         // Allow subplugins to backup data at assign level.
         $this->add_subplugin_structure('assignsubmission', $assign, true);
         $this->add_subplugin_structure('assignfeedback', $assign, true);
+        $this->add_subplugin_structure('assignresolution', $assign, true);
 
         // Assign overrides to backup are different depending of user info.
         $overrideparams = array('assignid' => backup::VAR_PARENTID);
@@ -242,9 +244,10 @@ class backup_assign_activity_structure_step extends backup_activity_structure_st
             $grade->set_source_table('assign_grades',
                                      array('assignment' => backup::VAR_PARENTID));
 
-            // Support 2 types of subplugins.
+            // Support 3 types of subplugins.
             $this->add_subplugin_structure('assignsubmission', $submission, true);
             $this->add_subplugin_structure('assignfeedback', $grade, true);
+            $this->add_subplugin_structure('assignresolution', $grade, true);
         } else {
             $overrideparams['userid'] = backup_helper::is_sqlparam(null); // Without userinfo, skip user overrides.
         }

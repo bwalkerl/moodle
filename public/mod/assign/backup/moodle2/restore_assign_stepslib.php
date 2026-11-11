@@ -59,6 +59,7 @@ class restore_assign_activity_structure_step extends restore_activity_structure_
         // Allow subplugins to restore data at assign level.
         $this->add_subplugin_structure('assignsubmission', $assign);
         $this->add_subplugin_structure('assignfeedback', $assign);
+        $this->add_subplugin_structure('assignresolution', $assign);
 
         if ($userinfo) {
             $submission = new restore_path_element('assign_submission',
@@ -68,6 +69,7 @@ class restore_assign_activity_structure_step extends restore_activity_structure_
             $grade = new restore_path_element('assign_grade', '/activity/assign/grades/grade');
             $paths[] = $grade;
             $this->add_subplugin_structure('assignfeedback', $grade);
+            $this->add_subplugin_structure('assignresolution', $grade);
             $userflag = new restore_path_element('assign_userflag',
                                                    '/activity/assign/userflags/userflag');
             $paths[] = $userflag;

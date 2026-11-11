@@ -8,3 +8,9 @@ downloadasfolders_help,mod_assign
 editaction,mod_assign
 saveallquickgradingchanges,mod_assign
 gradingoptions,mod_assign
+markgradeaverage,mod_assign
+markgradeaverage_help,mod_assign
+markgrademanual,mod_assign
+markgrademanual_help,mod_assign
+markgrademaximum,mod_assign
+markgrademaximum_help,mod_assign

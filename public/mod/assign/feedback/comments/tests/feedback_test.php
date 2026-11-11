@@ -100,8 +100,6 @@ final class feedback_test extends \advanced_testcase {
             'markingworkflow'                     => 1,
             'markingallocation'                   => 1,
             'markercount'                         => 1,
-            'multimarkmethod'                     => ASSIGN_MULTIMARKING_METHOD_MANUAL,
-            'multimarkrounding'                   => null,
         ]);
 
         // Allocate teacher as marker.

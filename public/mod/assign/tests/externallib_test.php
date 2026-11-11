@@ -2453,7 +2453,6 @@ final class externallib_test extends \mod_assign\externallib_advanced_testcase {
             'markingworkflow' => 1,
             'markingallocation' => 1,
             'markercount' => 2,
-            'multimarkmethod' => ASSIGN_MULTIMARKING_METHOD_MANUAL,
         ]);
         $cm = get_coursemodule_from_instance('assign', $instance->id);
         $context = \context_module::instance($cm->id);

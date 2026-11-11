@@ -302,64 +302,27 @@ class mod_assign_mod_form extends moodleform_mod {
 
         $name = get_string('multimarkmethod', 'assign');
         $options = new core\output\choicelist();
-        $options->add_option(
-            ASSIGN_MULTIMARKING_METHOD_MANUAL,
-            get_string('markgrade' . ASSIGN_MULTIMARKING_METHOD_MANUAL, 'assign'),
-            [
-                'description' => get_string('markgrade' . ASSIGN_MULTIMARKING_METHOD_MANUAL . '_help', 'assign'),
-            ]
-        );
-        $options->add_option(
-            ASSIGN_MULTIMARKING_METHOD_MAX,
-            get_string('markgrade' . ASSIGN_MULTIMARKING_METHOD_MAX, 'assign'),
-            [
-                'description' => get_string('markgrade' . ASSIGN_MULTIMARKING_METHOD_MAX . '_help', 'assign'),
-            ]
-        );
-        $options->add_option(
-            ASSIGN_MULTIMARKING_METHOD_AVERAGE,
-            get_string('markgrade' . ASSIGN_MULTIMARKING_METHOD_AVERAGE, 'assign'),
-            [
-                'description' => get_string('markgrade' . ASSIGN_MULTIMARKING_METHOD_AVERAGE . '_help', 'assign'),
-            ]
-        );
+        $resolutionmethods = \mod_assign\plugininfo\assignresolution::get_available_resolution_methods($assignment);
+        foreach ($resolutionmethods as $identifier => $method) {
+            $available = $identifier === $method::get_basename();
+            $methodname = $available ? $method::get_name() : ucfirst($identifier) . ' (' . get_string('notavailable') . ')';
+            $options->add_option($identifier, $methodname, ['description' => $method::get_description()]);
+        }
         $mform->addElement('choicedropdown', 'multimarkmethod', $name, $options);
         $this->apply_multimark_conditions('multimarkmethod', true, true);
 
         $name = get_string('multimarkrounding', 'assign');
         $options = new core\output\choicelist();
-        $options->add_option(
-            ASSIGN_MULTIMARKING_AVERAGE_ROUND_NONE,
-            get_string('multimarkrounding:none', 'assign'),
-            [
-                'description' => get_string('multimarkrounding:none_help', 'assign'),
-            ]
-        );
-        $options->add_option(
-            ASSIGN_MULTIMARKING_AVERAGE_ROUND_NATURAL,
-            get_string('multimarkrounding:natural', 'assign'),
-            [
-                'description' => get_string('multimarkrounding:natural_help', 'assign'),
-            ]
-        );
-        $options->add_option(
-            ASSIGN_MULTIMARKING_AVERAGE_ROUND_DOWN,
-            get_string('multimarkrounding:down', 'assign'),
-            [
-                'description' => get_string('multimarkrounding:down_help', 'assign'),
-            ]
-        );
-        $options->add_option(
-            ASSIGN_MULTIMARKING_AVERAGE_ROUND_UP,
-            get_string('multimarkrounding:up', 'assign'),
-            [
-                'description' => get_string('multimarkrounding:up_help', 'assign'),
-            ]
-        );
+        foreach (\mod_assign\resolution\rounding::cases() as $mode) {
+            $options->add_option($mode->value, $mode->get_name(), ['description' => $mode->get_description()]);
+        }
         $mform->addElement('choicedropdown', 'multimarkrounding', $name, $options);
         $this->apply_multimark_conditions('multimarkrounding', true, true);
-        $mform->hideIf('multimarkrounding', 'multimarkmethod', 'neq', 'average');
-
+        foreach ($resolutionmethods as $key => $method) {
+            if (!$method::display_rounding_options()) {
+                $mform->hideIf('multimarkrounding', 'multimarkmethod', 'eq', $key);
+            }
+        }
         $name = get_string('markinganonymous', 'assign');
         $mform->addElement('selectyesno', 'markinganonymous', $name);
         $mform->addHelpButton('markinganonymous', 'markinganonymous', 'assign');
